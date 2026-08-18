@@ -1,0 +1,302 @@
+# Enhanced Strategy Playbook: Multi-Tiered Targets, Tax-Aware Returns & Visual Price Ladder
+
+## Goal
+
+Upgrade the existing Strategy Playbook to provide **institutional-grade execution guidance** for each selected stock, including:
+
+1. **Multi-tiered profit targets (T1 / T2 / T3)** with partial position booking percentages
+2. **Tax-aware net return calculations** using India 2024 rules (STCG 20%, LTCG 12.5%, ₹1.25L exemption)
+3. **Detailed reasoning** for every entry zone, stop-loss, and target level
+4. **A visual price ladder** UI on each stock guidance card showing Entry → T1 → T2 → T3 with % gains and net returns
+5. **Risk-reward ratio** calculated and displayed prominently per stock
+
+All changes will be made within the **existing Playbook view** that generates after strategy finalization — no new tabs or pages.
+
+---
+
+## Current State
+
+The existing playbook system ([playbook_service.py](file:///c:/Stock AI tool/backend/app/services/playbook_service.py)) already computes:
+- Entry zone (low/high) based on SMA-50 and 3% dip
+- A **single** stop-loss based on ATR × multiplier
+- A **single** take-profit target based on 2.5:1 reward-to-risk
+- LLM-generated rationales for entry and stop-loss
+
+**What's missing:**
+- Multi-tiered targets (T1, T2, T3) with partial exit percentages
+- Tax impact calculations (gross vs. net returns)
+- Risk-reward ratio per stock
+- Visual price ladder in the UI
+- Reasoning for *each* target level (not just one take-profit)
+- Tax-adjusted breakeven analysis
+
+---
+
+## Proposed Changes
+
+### Backend: Schema & Data Model
+
+---
+
+#### [MODIFY] [playbook_schemas.py](file:///c:/Stock AI tool/backend/app/models/playbook_schemas.py)
+
+Add new Pydantic models for tiered targets and tax calculations:
+
+```python
+class ProfitTarget(BaseModel):
+    """A single profit target level with partial exit guidance."""
+    level: str  # "T1", "T2", "T3"
+    price: float
+    gain_pct: float  # % gain from entry (gross)
+    exit_pct: float  # % of position to sell at this level (e.g. 0.40 = 40%)
+    method: str  # How target was calculated, e.g. "1.5x ATR", "Fibonacci 161.8%", "2.5x Risk"
+    rationale: str  # LLM-generated explanation of why this is a good exit
+
+class TaxImpact(BaseModel):
+    """Tax calculation for a specific holding period scenario."""
+    holding_period: str  # "short_term" or "long_term"
+    tax_rate_pct: float  # 20.0 or 12.5
+    gross_gain_pct: float
+    tax_pct: float  # Tax as % of entry
+    net_gain_pct: float  # After-tax return
+    net_target_price: float  # Effective price after tax deduction
+
+class StockPlaybookGuidance(BaseModel):  # UPGRADED
+    # ... existing fields kept ...
+    
+    # NEW: Multi-tiered targets
+    profit_targets: list[ProfitTarget] = []  # T1, T2, T3
+    
+    # NEW: Tax impact for each target
+    tax_impact_short_term: list[TaxImpact] = []  # If sold < 12 months
+    tax_impact_long_term: list[TaxImpact] = []   # If sold > 12 months
+    
+    # NEW: Risk-Reward metrics
+    risk_reward_ratio: float = 0.0  # Weighted avg R:R across all targets
+    breakeven_after_tax_pct: float = 0.0  # Min gain needed to break even after STCG tax + costs
+    
+    # NEW: Enhanced reasoning
+    target_reasoning_summary: str = ""  # Concise summary of the target-setting methodology
+    stop_loss_methodology: str = ""  # "ATR-based", "Support-level", etc.
+```
+
+---
+
+### Backend: Computation Engine
+
+---
+
+#### [MODIFY] [playbook_service.py](file:///c:/Stock AI tool/backend/app/services/playbook_service.py)
+
+Upgrade the deterministic computation pass to calculate multi-tiered targets and tax impact:
+
+**Multi-Tiered Target Calculation Logic:**
+
+| Target | Method | Position Exit % | Rationale |
+|:-------|:-------|:---------------|:----------|
+| **T1** (Conservative) | `entry + 1.5 × ATR` or `entry × 1.08` (whichever is higher) | 40% | Lock in initial gains, move stop to breakeven |
+| **T2** (Base Case) | `entry + 2.5 × (entry - stop_loss)` (2.5:1 R:R) | 35% | Standard reward-to-risk target |
+| **T3** (Aggressive / Runner) | `entry + 4.0 × (entry - stop_loss)` or next major resistance | 25% | Trailing stop only — capture big move |
+
+**Tax Calculation Logic (India 2024):**
+
+```python
+def calculate_tax_impact(entry_price, target_price, tx_cost_pct=0.002):
+    gross_gain = target_price - entry_price
+    gross_gain_pct = (gross_gain / entry_price) * 100
+    
+    # Short-term (< 12 months): 20% on gains
+    stcg_tax = max(0, gross_gain * 0.20)
+    stcg_net = gross_gain - stcg_tax - (entry_price * tx_cost_pct * 2)  # round-trip cost
+    
+    # Long-term (> 12 months): 12.5% on gains (₹1.25L exemption handled at portfolio level)
+    ltcg_tax = max(0, gross_gain * 0.125)
+    ltcg_net = gross_gain - ltcg_tax - (entry_price * tx_cost_pct * 2)
+    
+    return {
+        "short_term": TaxImpact(
+            holding_period="short_term",
+            tax_rate_pct=20.0,
+            gross_gain_pct=round(gross_gain_pct, 2),
+            tax_pct=round((stcg_tax / entry_price) * 100, 2),
+            net_gain_pct=round((stcg_net / entry_price) * 100, 2),
+            net_target_price=round(entry_price + stcg_net, 2),
+        ),
+        "long_term": TaxImpact(
+            holding_period="long_term",
+            tax_rate_pct=12.5,
+            gross_gain_pct=round(gross_gain_pct, 2),
+            tax_pct=round((ltcg_tax / entry_price) * 100, 2),
+            net_gain_pct=round((ltcg_net / entry_price) * 100, 2),
+            net_target_price=round(entry_price + ltcg_net, 2),
+        ),
+    }
+```
+
+**Risk-Reward Ratio:**
+```
+Weighted R:R = Σ (target_gain × exit_pct) / risk_per_share
+```
+
+Where `risk_per_share = entry_price - stop_loss_price`.
+
+---
+
+### Backend: LLM Prompt Upgrade
+
+---
+
+#### [MODIFY] [prompt_templates.py](file:///c:/Stock AI tool/backend/app/services/prompt_templates.py)
+
+Upgrade `STRATEGY_PLAYBOOK_SYSTEM` and `STRATEGY_PLAYBOOK_USER` to include multi-tiered target reasoning in the LLM response schema:
+
+```json
+"stock_guidance": [
+  {
+    "symbol": "TICKER",
+    "entry_rationale": "...",
+    "stop_loss_rationale": "...",
+    "t1_rationale": "Conservative target at 1.5x ATR from entry; this is the 'de-risking' level where...",
+    "t2_rationale": "Base-case target at 2.5:1 reward-to-risk; historically this stock...",
+    "t3_rationale": "Aggressive runner target at 4x risk; only hold if trend structure remains...",
+    "target_reasoning_summary": "Targets set using ATR-volatility-adjusted scaling with a tiered exit discipline...",
+    "key_metrics_to_watch": ["...", "..."],
+    "news_catalysts": "...",
+    "regime_behavior": "..."
+  }
+]
+```
+
+The LLM will be instructed to **justify each target level** in the context of the stock's sector, volatility characteristics, and current market regime.
+
+---
+
+### Frontend: Type Updates
+
+---
+
+#### [MODIFY] [api.ts](file:///c:/Stock AI tool/frontend/src/lib/api.ts)
+
+Add TypeScript interfaces matching the new backend schemas:
+
+```typescript
+export interface ProfitTarget {
+  level: string;
+  price: number;
+  gain_pct: number;
+  exit_pct: number;
+  method: string;
+  rationale: string;
+}
+
+export interface TaxImpact {
+  holding_period: string;
+  tax_rate_pct: number;
+  gross_gain_pct: number;
+  tax_pct: number;
+  net_gain_pct: number;
+  net_target_price: number;
+}
+
+export interface StockPlaybookGuidance {
+  // ... existing fields ...
+  profit_targets: ProfitTarget[];
+  tax_impact_short_term: TaxImpact[];
+  tax_impact_long_term: TaxImpact[];
+  risk_reward_ratio: number;
+  breakeven_after_tax_pct: number;
+  target_reasoning_summary: string;
+  stop_loss_methodology: string;
+}
+```
+
+---
+
+### Frontend: Visual Price Ladder UI
+
+---
+
+#### [MODIFY] [playbook-view.tsx](file:///c:/Stock AI tool/frontend/src/components/strategy/playbook-view.tsx)
+
+Upgrade each stock guidance card's expanded panel to include a **Visual Price Ladder**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  RELIANCE.NS  ·  Reliance Industries  ·  Energy            │
+│  Signal: BULLISH_ENTRY  ·  R:R Ratio: 3.2x                 │
+│                                                             │
+│  Current: ₹2,850  │  Entry: ₹2,780-₹2,870  │  Stop: ₹2,640│
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  PRICE LADDER                              TAX IMPACT       │
+│  ─────────────                             ──────────       │
+│  ₹3,380 ── T3 (Runner)  +18.6%  ──  25%   STCG: +14.9%    │
+│      │                                     LTCG: +16.3%    │
+│  ₹3,180 ── T2 (Base)    +11.5%  ──  35%   STCG: +9.2%     │
+│      │                                     LTCG: +10.1%    │
+│  ₹2,990 ── T1 (Lock-in) +5.0%   ──  40%   STCG: +4.0%     │
+│      │                                     LTCG: +4.4%     │
+│  ₹2,850 ── ENTRY PRICE   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─    │
+│      │                                                      │
+│  ₹2,640 ── STOP LOSS    -7.4%  ── EXIT 100%               │
+│                                                             │
+│  ✅ Breakeven after STCG tax + costs: +0.6%                │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  🎯 Target Methodology                                     │
+│  T1 set at 1.5× ATR (₹140) above entry zone midpoint.     │
+│  T2 set at 2.5:1 reward-to-risk from stop.                 │
+│  T3 trails at 4:1 R:R — only reachable in strong trends.   │
+│                                                             │
+│  🛡️ Stop Loss Discipline                                   │
+│  ATR-based trailing stop at 2× ATR-14 (₹210) below highest │
+│  close since entry. Currently ₹2,640 (-7.4%).              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+The price ladder will be implemented as a **vertical CSS flex layout** with:
+- Color-coded horizontal bars for each level (green gradient for targets, red for stop-loss, blue dashed for entry)
+- Connecting vertical line between levels
+- Tax-adjusted net returns shown in a subtle secondary column
+- Risk-reward badge prominently displayed in the card header
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Transaction cost assumption:** We are assuming 0.2% round-trip (buy + sell) as default. Should this be configurable per strategy, or is 20 bps (which matches your `DEFAULT_TX_COST_BPS=20.0` in `.env`) fine as a hardcoded default?
+
+> [!NOTE]
+> **LTCG ₹1.25L exemption:** This exemption is per-financial-year across the entire portfolio, not per stock. We will show it as a footnote ("*LTCG calculations assume exemption already utilized") rather than trying to allocate it per stock, since that would require tracking all user gains across the year.
+
+---
+
+## Summary of Files Changed
+
+| File | Action | Description |
+|:-----|:-------|:------------|
+| [playbook_schemas.py](file:///c:/Stock AI tool/backend/app/models/playbook_schemas.py) | MODIFY | Add `ProfitTarget`, `TaxImpact` models; upgrade `StockPlaybookGuidance` |
+| [playbook_service.py](file:///c:/Stock AI tool/backend/app/services/playbook_service.py) | MODIFY | Add tiered target computation, tax calculations, R:R ratio |
+| [prompt_templates.py](file:///c:/Stock AI tool/backend/app/services/prompt_templates.py) | MODIFY | Upgrade playbook LLM prompts for per-target reasoning |
+| [api.ts](file:///c:/Stock AI tool/frontend/src/lib/api.ts) | MODIFY | Add `ProfitTarget`, `TaxImpact` TS interfaces |
+| [playbook-view.tsx](file:///c:/Stock AI tool/frontend/src/components/strategy/playbook-view.tsx) | MODIFY | Add visual price ladder, tax columns, R:R badge |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+cd c:\Stock AI tool\backend
+venv\Scripts\python -m pytest tests/ -v  # If tests exist
+venv\Scripts\python -c "from app.models.playbook_schemas import ProfitTarget, TaxImpact; print('Schema OK')"
+```
+
+### Manual Verification
+1. Start backend and frontend dev servers
+2. Create a strategy via the AI chat flow → click "Build Strategy"
+3. Verify the Playbook panel loads with the new visual price ladder
+4. Check that T1/T2/T3 prices are mathematically consistent (T1 < T2 < T3 > Entry > Stop)
+5. Verify tax calculations: e.g., for a 10% gross gain, STCG net should be ~8% (10% - 20% tax on the gain)
+6. Verify R:R ratio is displayed correctly (weighted average across tiers)

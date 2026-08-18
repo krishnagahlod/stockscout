@@ -1,0 +1,276 @@
+# Multi-Broker Portfolio Aggregation Platform
+
+Transform StockScout into a **unified investment command center** that aggregates equity and ETF holdings from Zerodha, Groww, and Dhan — alongside existing CSV imports — into a single intelligent dashboard with AI-powered cross-portfolio insights, alerts, and decision support.
+
+## Design Philosophy
+
+> **Think like a family office CIO**: Every demat account is a "sleeve" within a master portfolio. The platform should give you a single pane of glass to see total net worth, cross-account concentration risk, overlapping positions, and purpose-driven allocation — all enhanced by the AI/news intelligence engine we've already built.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Broker API Keys Required**: You will need to generate API credentials from each broker's developer portal:
+> - **Zerodha**: Register at [developers.kite.trade](https://developers.kite.trade/) → get `api_key` and `api_secret` (Free Personal plan, ₹0/mo)
+> - **Dhan**: Go to Profile → DhanHQ Trading APIs → generate `client_id` and `access_token` (Free, ₹0/mo)
+> - **Groww**: Go to Profile → Trading APIs → subscribe (₹499+tax/mo) → get API auth token
+
+> [!WARNING]
+> **Zerodha access tokens expire daily**. The user must re-login via Kite's OAuth redirect each trading day to refresh the token, unless we implement the full OAuth flow. For now, manual token paste will work for on-demand syncs. We can automate this later with the OAuth flow.
+
+> [!IMPORTANT]
+> **Security**: All broker credentials will be encrypted at rest using Fernet symmetric encryption before storing in the database. Tokens are never logged or exposed in API responses.
+
+---
+
+## Proposed Changes
+
+### Phase 1: Database Schema & Broker Account Management
+
+#### [NEW] Alembic migration: `broker_accounts` and `portfolio_groups` tables
+
+New database tables to support multi-broker architecture:
+
+```sql
+-- Each connected broker account
+CREATE TABLE broker_accounts (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    broker_name TEXT NOT NULL,           -- 'zerodha', 'dhan', 'groww'
+    account_label TEXT NOT NULL,         -- User-assigned label: "Retirement", "Trading", etc.
+    account_purpose TEXT,               -- 'long_term_wealth', 'active_trading', 'retirement', 'tax_saving', 'custom'
+    credentials_encrypted TEXT NOT NULL, -- Fernet-encrypted JSON blob of api_key, access_token, etc.
+    is_active BOOLEAN DEFAULT TRUE,
+    last_synced_at TIMESTAMP,
+    sync_status TEXT DEFAULT 'never',   -- 'never', 'syncing', 'success', 'error'
+    sync_error TEXT,
+    holdings_count INTEGER DEFAULT 0,
+    total_invested FLOAT DEFAULT 0,
+    total_current_value FLOAT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Extend holdings table with broker account linkage
+ALTER TABLE holdings ADD COLUMN broker_account_id INTEGER REFERENCES broker_accounts(id);
+ALTER TABLE holdings ADD COLUMN source TEXT DEFAULT 'csv';  -- 'csv', 'zerodha', 'dhan', 'groww'
+ALTER TABLE holdings ADD COLUMN broker_trading_symbol TEXT;  -- Original symbol from broker
+ALTER TABLE holdings ADD COLUMN isin TEXT;                   -- ISIN for cross-broker deduplication
+```
+
+> **Key insight**: By adding `broker_account_id` and `source` to the existing `holdings` table (rather than creating a separate table), all existing intelligence features (Playbook, Drift, Rebalance) automatically work across all brokers with zero code changes.
+
+---
+
+### Phase 2: Broker Integration Service Layer
+
+#### [NEW] [broker_integration_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/broker_integration_service.py)
+
+A unified service with adapter pattern for each broker:
+
+```
+BrokerIntegrationService
+├── ZerodhaAdapter     (kiteconnect Python SDK)
+│   ├── authenticate(api_key, api_secret, request_token) → access_token
+│   ├── fetch_holdings() → List[NormalizedHolding]
+│   └── fetch_positions() → List[NormalizedPosition]
+├── DhanAdapter        (dhanhq Python SDK)
+│   ├── authenticate(client_id, access_token) → validated
+│   ├── fetch_holdings() → List[NormalizedHolding]
+│   └── fetch_positions() → List[NormalizedPosition]
+└── GrowwAdapter       (growwapi Python SDK)
+    ├── authenticate(api_auth_token) → validated
+    ├── fetch_holdings() → List[NormalizedHolding]
+    └── fetch_positions() → List[NormalizedPosition]
+```
+
+**NormalizedHolding** (unified schema across all brokers):
+```python
+@dataclass
+class NormalizedHolding:
+    trading_symbol: str      # "RELIANCE", "SBIN"
+    exchange: str            # "NSE", "BSE"
+    isin: str                # "INE002A01018" — used for cross-broker matching
+    quantity: int
+    avg_buy_price: float
+    last_price: float        # Live LTP from broker
+    pnl: float
+    day_change: float
+    day_change_pct: float
+    product: str             # "CNC", "NRML" etc.
+    instrument_type: str     # "EQ", "ETF"
+```
+
+**Symbol Resolution Logic**:
+When syncing from a broker, each holding's `trading_symbol` is matched to our `stocks` table:
+1. First try: Match by ISIN (most reliable cross-broker identifier)
+2. Fallback: Match by `ticker` pattern (e.g., "RELIANCE" → "RELIANCE.NS")
+3. Last resort: Auto-create a custom stock entry (like existing CSV flow) and flag for manual review
+
+#### [NEW] [broker_crypto_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/broker_crypto_service.py)
+
+Fernet encryption wrapper for credential storage:
+- `encrypt_credentials(creds_dict) → encrypted_string`
+- `decrypt_credentials(encrypted_string) → creds_dict`
+- Encryption key sourced from environment variable `BROKER_ENCRYPTION_KEY`
+
+---
+
+### Phase 3: API Routes
+
+#### [MODIFY] [portfolio.py](file:///c:/Stock%20AI%20tool/backend/app/routers/portfolio.py)
+
+Add new endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/portfolio/broker-accounts` | Register a new broker account (save encrypted credentials) |
+| `GET` | `/portfolio/broker-accounts` | List all connected broker accounts for the user |
+| `PUT` | `/portfolio/broker-accounts/{id}` | Update label, purpose, or refresh credentials |
+| `DELETE` | `/portfolio/broker-accounts/{id}` | Disconnect a broker account (remove credentials + holdings) |
+| `POST` | `/portfolio/broker-accounts/{id}/sync` | Trigger on-demand sync for a specific account |
+| `POST` | `/portfolio/sync-all` | Sync all connected broker accounts |
+| `GET` | `/portfolio/unified-snapshot` | Unified view across ALL accounts (broker + CSV) |
+| `GET` | `/portfolio/cross-account-analysis` | Overlap detection, concentration risk, purpose alignment |
+
+---
+
+### Phase 4: Scheduler Integration
+
+#### [MODIFY] [scheduler_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/scheduler_service.py)
+
+Add a new daily job `job_sync_broker_holdings`:
+- Runs at **6:00 AM IST** (before market opens) and **4:00 PM IST** (after market close)
+- Iterates over all active `broker_accounts` and calls the sync service
+- Updates `last_synced_at`, `sync_status`, and `sync_error` on each account
+- Triggers alerts if any sync fails (e.g., expired Zerodha token)
+
+---
+
+### Phase 5: Cross-Portfolio Intelligence Engine
+
+#### [MODIFY] [portfolio_intelligence_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/portfolio_intelligence_service.py)
+
+Enhance existing intelligence methods to be multi-account aware:
+
+1. **Unified Playbook**: When called with `scope=all`, aggregates holdings across all accounts. Same stock held in Zerodha and Groww? Quantities are summed for ATR/stop-loss calculations.
+
+2. **Cross-Account Overlap Detection**:
+   - Identify same ISIN held across multiple accounts
+   - Calculate effective total position size and concentration
+   - Flag: "You own RELIANCE in 3 accounts totaling ₹4.2L (12.3% of total NAV)"
+
+3. **Purpose-Aligned Drift Analysis**:
+   - A "Retirement" account holding speculative small-caps → alert
+   - A "Trading" account with stale positions held >30 days → alert
+   - Purpose-based risk tolerance thresholds
+
+4. **Unified Rebalance**: Cross-account rebalancing that considers:
+   - Which account to buy/sell from (minimize tax impact, transaction costs)
+   - Account-level cash buffers
+   - Tax lot optimization (FIFO awareness)
+
+---
+
+### Phase 6: Frontend — Accounts & Unified Dashboard
+
+#### [NEW] [frontend/src/app/(app)/portfolio/accounts/page.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/portfolio/accounts/page.tsx)
+
+**Broker Accounts Management Page**:
+- Cards for each connected account showing: broker logo, label, purpose badge, last sync time, holdings count, total value
+- "Connect New Account" modal with broker selection → credential input form
+- Sync status indicators (green tick, spinning, error)
+- "Sync All" master button
+
+#### [MODIFY] [portfolio-dashboard.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/portfolio/portfolio-dashboard.tsx)
+
+Transform the existing single-portfolio dashboard into a multi-account unified view:
+
+**New Tab Structure**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [All Accounts ▼]  [Zerodha-Retirement]  [Dhan-Trading]    │
+│  [Groww-Growth]    [CSV Import]                              │
+├─────────────────────────────────────────────────────────────┤
+│  Tab Bar:                                                    │
+│  [Holdings & Overview] [AI Playbook] [Drift] [Rebalance]    │
+│  [Cross-Account Insights]  ← NEW TAB                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Account Selector Dropdown**: At the top, a dropdown/pill bar to switch between "All Accounts" (unified) or individual accounts
+- When "All Accounts" is selected, the overview cards show aggregate NAV, total P&L across all brokers
+- Each holding row shows a small broker badge icon (Zerodha green, Dhan blue, Groww orange)
+- The Holdings table gains a "Source" column showing the broker origin
+
+#### [NEW] [frontend/src/components/portfolio/cross-account-insights-card.tsx](file:///c:/Stock%20AI%20tool/frontend/src/components/portfolio/cross-account-insights-card.tsx)
+
+New "Cross-Account Insights" tab showing:
+- **Overlap Matrix**: Visual showing which stocks appear in multiple accounts
+- **Purpose Alignment Score**: How well each account's holdings match its stated purpose
+- **Unified Sector Allocation**: Donut chart combining all accounts
+- **Concentration Heatmap**: Which positions are dangerously large across all accounts combined
+- **Net Worth Timeline**: Historical NAV chart across all accounts (built from daily sync snapshots)
+
+#### [NEW] [frontend/src/components/portfolio/broker-connect-modal.tsx](file:///c:/Stock%20AI%20tool/frontend/src/components/portfolio/broker-connect-modal.tsx)
+
+A clean modal for connecting a new broker account:
+- Step 1: Select broker (Zerodha / Dhan / Groww) with logos
+- Step 2: Enter credentials (fields change per broker)
+- Step 3: Assign label and purpose
+- Step 4: Initial sync + confirmation
+
+---
+
+### Phase 7: Alerts & News Integration
+
+#### [MODIFY] [alert_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/alert_service.py)
+
+New alert types:
+- `BROKER_SYNC_FAILED` — "Zerodha token expired. Re-authenticate to keep your Retirement portfolio synced."
+- `CROSS_ACCOUNT_OVERLAP` — "RELIANCE is held in 3 accounts. Total exposure: 15.2% of NAV."
+- `PURPOSE_DRIFT` — "Your Retirement account has 4 speculative small-cap stocks."
+- `PORTFOLIO_MILESTONE` — "Your total net worth across all accounts crossed ₹50L!"
+
+---
+
+## Implementation Sequence
+
+| Phase | Scope | Estimated Effort |
+|-------|-------|-----------------|
+| **1** | DB schema migration + encryption service | Foundation |
+| **2** | Broker adapter service (Zerodha → Dhan → Groww) | Core |
+| **3** | API routes + sync endpoints | Core |
+| **4** | Scheduler daily sync job | Small |
+| **5** | Cross-portfolio intelligence engine | Medium |
+| **6** | Frontend: accounts page + unified dashboard + cross-insights | Large |
+| **7** | Alerts + news integration | Small |
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Python SDK Installation**: I'll need to install the broker Python SDKs (`kiteconnect`, `dhanhq`, `growwapi`) in your backend venv. These are `pip install` commands. Shall I proceed with installing them?
+
+> [!IMPORTANT]
+> **Encryption Key**: We need a `BROKER_ENCRYPTION_KEY` environment variable for Fernet encryption. I can auto-generate one and add it to your `.env` file. Is that acceptable?
+
+> [!NOTE]
+> **Zerodha Daily Token Refresh**: Zerodha's access token expires every trading day at midnight. For the manual-token approach, you'll need to paste a fresh token each day. When we add OAuth later, this becomes automatic. Is this acceptable for the initial version?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Unit test broker adapters with mock API responses
+- Integration test: connect account → sync → verify holdings appear in DB → verify unified snapshot API returns correct aggregation
+
+### Manual Verification
+1. Connect one Zerodha account → sync → verify holdings match Kite app
+2. Connect one Dhan account → sync → verify holdings match Dhan app
+3. View "All Accounts" unified dashboard → verify aggregate P&L is correct
+4. Check cross-account overlap detection for a stock held in 2+ accounts
+5. Verify existing CSV holdings still appear alongside broker-synced holdings

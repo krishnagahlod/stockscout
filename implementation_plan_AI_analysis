@@ -1,0 +1,320 @@
+# Portfolio Intelligence Hub — Flagship Feature Redesign
+
+## Overview
+
+Transform the current chat-only AI analysis page into a **full-fledged Portfolio Intelligence Hub** — a data-rich dashboard that auto-generates a comprehensive portfolio health report on load, with a **Copilot-style AI chat bar** docked at the bottom for follow-up conversations. The AI has full context of the dashboard data and can render rich interactive widgets inline.
+
+---
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend ["Frontend (Next.js)"]
+        A["📊 Dashboard Page<br/>/portfolio/analysis"]
+        B["🧠 AI Chat Bar<br/>(Copilot-style, bottom-docked)"]
+        C["Server Actions<br/>(actions.ts)"]
+    end
+
+    subgraph Backend ["Backend (FastAPI)"]
+        D["GET /api/portfolio/snapshot<br/>(All data in one call)"]
+        E["POST /api/portfolio/report<br/>(AI Health Report)"]
+        F["POST /api/portfolio/chat<br/>(Enhanced with full context)"]
+    end
+
+    subgraph Data ["Database (Supabase/PostgreSQL)"]
+        G["Holdings + Stocks"]
+        H["Daily Prices"]
+        I["Fundamentals"]
+        J["Technical Features"]
+        K["News Items"]
+        L["Regime History"]
+    end
+
+    A -->|Server Action| C
+    B -->|Server Action| C
+    C --> D
+    C --> E
+    C --> F
+    D --> G & H & I & J & K & L
+    E --> D
+    F --> D
+```
+
+---
+
+## Proposed Changes
+
+### 1. Backend — New Portfolio Snapshot API
+
+#### [NEW] `GET /api/portfolio/snapshot?user_id={uuid}`
+
+A single endpoint that aggregates **all** data the dashboard and AI need, eliminating multiple round trips.
+
+**Returns:**
+
+```json
+{
+  "summary": {
+    "total_invested": 1250000,
+    "current_value": 1480000,
+    "total_pnl": 230000,
+    "total_pnl_pct": 18.4,
+    "holdings_count": 78,
+    "sectors_count": 15
+  },
+  "holdings": [
+    {
+      "stock_id": 42,
+      "symbol": "RELIANCE.NS",
+      "name": "Reliance Industries",
+      "sector": "Energy",
+      "industry": "Oil & Gas",
+      "quantity": 10,
+      "avg_buy_price": 2450.0,
+      "current_price": 2890.5,
+      "invested": 24500,
+      "current_value": 28905,
+      "pnl": 4405,
+      "pnl_pct": 17.98,
+      "fundamentals": {
+        "pe": 28.5, "pb": 2.1, "roe": 12.3, "roce": 14.1,
+        "debt_to_equity": 0.45, "dividend_yield": 0.35,
+        "eps": 95.2, "revenue_cagr_3y": 12.5,
+        "market_cap": 1950000, "beta": 0.92,
+        "week_52_high": 3100, "week_52_low": 2200,
+        "gross_margin": 45.2, "operating_margin": 18.5, "net_margin": 10.2
+      },
+      "technicals": {
+        "rsi_14": 58.2, "sma_50": 2750, "sma_200": 2600,
+        "macd": 15.3, "macd_signal": 12.1,
+        "volatility_30d": 0.22, "momentum_12m": 0.18,
+        "atr_14": 45.5, "sharpe_trailing": 1.2, "max_drawdown_1y": -12.5
+      },
+      "recent_news": [
+        { "title": "Reliance Q1 results beat estimates", "sentiment": 0.8, "date": "2026-07-20" }
+      ]
+    }
+  ],
+  "sector_allocation": [
+    { "sector": "Financial Services", "value": 450000, "pct": 30.4, "count": 18 }
+  ],
+  "regime": {
+    "current": "bull",
+    "nifty_close": 24500,
+    "nifty_sma200": 22800,
+    "pct_above_sma": 7.5
+  },
+  "risk_metrics": {
+    "top_holding_pct": 12.5,
+    "top_3_holdings_pct": 28.0,
+    "hhi_concentration": 0.045,
+    "avg_beta": 1.05,
+    "avg_pe": 32.5,
+    "median_pe": 28.0,
+    "portfolio_dividend_yield": 1.2,
+    "stocks_near_52w_high": 12,
+    "stocks_near_52w_low": 5,
+    "stocks_rsi_overbought": 8,
+    "stocks_rsi_oversold": 3
+  }
+}
+```
+
+#### [MODIFY] [portfolio.py](file:///c:/Stock%20AI%20tool/backend/app/routers/portfolio.py)
+
+- Add the new `/snapshot` endpoint that joins Holdings → Stocks → latest DailyPrice → latest Fundamental → latest TechnicalFeature → recent NewsItems
+- Compute aggregate risk metrics (HHI concentration index, avg beta, RSI distribution, 52-week proximity)
+- Include regime data from `RegimeHistory`
+
+---
+
+### 2. Backend — AI Health Report Generator
+
+#### [NEW] `POST /api/portfolio/report`
+
+Accepts the snapshot data and sends it to the LLM with a specialized **report generation prompt**. Returns structured sections:
+
+```json
+{
+  "health_score": 72,
+  "health_label": "Good",
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Portfolio Overview",
+      "icon": "chart-pie",
+      "content": "Your portfolio of 78 stocks across 15 sectors..."
+    },
+    {
+      "id": "strengths",
+      "title": "Strengths",
+      "icon": "shield-check",
+      "items": ["Well-diversified across 15 sectors", "Strong fundamental quality..."]
+    },
+    {
+      "id": "risks",
+      "title": "Risk Alerts",
+      "icon": "alert-triangle",
+      "items": [
+        { "severity": "high", "text": "Top 3 holdings = 28% concentration" },
+        { "severity": "medium", "text": "8 stocks have RSI > 70 (overbought)" }
+      ]
+    },
+    {
+      "id": "sector_analysis",
+      "title": "Sector Analysis",
+      "content": "Financial Services dominates at 30.4%..."
+    },
+    {
+      "id": "rebalancing",
+      "title": "Rebalancing Suggestions",
+      "items": [
+        { "action": "reduce", "stock": "RELIANCE", "reason": "Over-concentrated at 12.5% of portfolio" },
+        { "action": "add", "sector": "IT", "reason": "Under-represented; strong growth outlook in bull regime" }
+      ]
+    },
+    {
+      "id": "regime_context",
+      "title": "Market Regime Context",
+      "content": "Current regime: BULL. Nifty 7.5% above 200-day SMA..."
+    }
+  ]
+}
+```
+
+#### [MODIFY] [portfolio.py](file:///c:/Stock%20AI%20tool/backend/app/routers/portfolio.py)
+
+- Add the `/report` endpoint
+- Create a specialized report generation prompt that outputs structured JSON
+
+#### [MODIFY] [prompt_templates.py](file:///c:/Stock%20AI%20tool/backend/app/services/prompt_templates.py)
+
+- Add `PORTFOLIO_REPORT_SYSTEM` and `PORTFOLIO_REPORT_USER` prompt templates
+- Instruct the LLM to return structured JSON with specific sections
+
+---
+
+### 3. Backend — Enhanced Chat Endpoint
+
+#### [MODIFY] [portfolio.py](file:///c:/Stock%20AI%20tool/backend/app/routers/portfolio.py) — `POST /api/portfolio/chat`
+
+Currently the chat only passes `symbol, name, sector, qty, avg_buy_price` to the LLM. Enhance it to pass **all** snapshot data (fundamentals, technicals, news, regime) so the AI can give truly informed answers.
+
+- Accept an optional `snapshot_summary` field in the request body (pre-computed by the frontend) to avoid re-querying the DB
+- The system prompt will include the full portfolio context with aggregated metrics
+
+---
+
+### 4. Frontend — Dashboard-First Layout
+
+#### [NEW] `/portfolio/analysis/page.tsx` (complete rewrite)
+
+The page will have two main sections:
+
+**A. Full-Width Data Dashboard (Top)**
+
+Loads via a Server Action that calls `GET /api/portfolio/snapshot`. Renders:
+
+| Section | Description | Visual |
+|---|---|---|
+| **Health Score Ring** | Large circular gauge (0-100) with color coding | Animated SVG donut |
+| **Summary Cards** | Total Invested, Current Value, P&L, Holdings Count | Glass cards with gradients |
+| **Regime Badge** | Bull/Bear/Sideways indicator with Nifty context | Colored pill badge |
+| **AI Report Sections** | Collapsible accordion cards for each report section | Animated accordions |
+| **Top Performers** | Top 5 gainers with sparkline mini-charts | Compact cards |
+| **Bottom Performers** | Top 5 losers with sparkline mini-charts | Compact cards |
+| **Risk Alerts** | Color-coded severity badges | Warning/danger badges |
+| **Sector Donut** | Interactive sector allocation chart | Recharts PieChart |
+| **Rebalancing Suggestions** | Action cards with Buy/Sell/Hold badges | Gradient action cards |
+
+**B. Copilot-Style AI Chat Bar (Bottom-Docked)**
+
+A sleek, collapsible chat bar that slides up from the bottom of the screen:
+
+- **Collapsed state**: A slim bar showing "Ask about your portfolio..." with the AI icon — always visible
+- **Expanded state**: Slides up to ~50% of screen height, showing the full chat history and input
+- **Context-aware**: The AI already has the full snapshot data, so it can answer instantly about any stock, sector, or metric
+- **Rich responses**: The AI can reference data from the dashboard and provide specific numbers
+
+#### [NEW] Components to create:
+
+| Component | File | Purpose |
+|---|---|---|
+| `HealthScoreGauge` | `health-score-gauge.tsx` | Animated circular SVG gauge showing 0-100 score |
+| `ReportSection` | `report-section.tsx` | Collapsible accordion card for each AI report section |
+| `RiskAlertBadge` | `risk-alert-badge.tsx` | Color-coded severity indicator |
+| `PerformerCard` | `performer-card.tsx` | Compact stock card with P&L and mini sparkline |
+| `RegimeBadge` | `regime-badge.tsx` | Bull/Bear/Sideways styled badge |
+| `CopilotChatBar` | `copilot-chat-bar.tsx` | Bottom-docked expandable AI chat panel |
+| `RebalanceSuggestion` | `rebalance-suggestion.tsx` | Buy/Sell/Hold action card |
+
+#### [MODIFY] [actions.ts](file:///c:/Stock%20AI%20tool/frontend/src/app/%28app%29/portfolio/analysis/actions.ts)
+
+- Add `fetchPortfolioSnapshot()` Server Action
+- Add `generatePortfolioReport()` Server Action
+- Enhance `sendPortfolioChatMessage()` to pass snapshot context
+
+---
+
+## User Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Frontend
+    participant SA as Server Action
+    participant BE as FastAPI Backend
+    participant LLM as Cerebras LLM
+
+    U->>FE: Navigate to /portfolio/analysis
+    FE->>SA: fetchPortfolioSnapshot()
+    SA->>BE: GET /api/portfolio/snapshot
+    BE-->>SA: Full snapshot data (holdings, fundamentals, technicals, news, regime)
+    SA-->>FE: Render dashboard instantly with real data
+    
+    Note over FE: Dashboard shows immediately with data cards, charts, metrics
+    
+    FE->>SA: generatePortfolioReport(snapshot)
+    SA->>BE: POST /api/portfolio/report
+    BE->>LLM: Generate structured health report
+    LLM-->>BE: JSON report (health score, sections, risks, suggestions)
+    BE-->>SA: Report data
+    SA-->>FE: Render AI report sections with animations
+
+    Note over FE: User sees health score gauge animate, report sections fade in
+
+    U->>FE: Opens Copilot chat bar
+    U->>FE: "Should I sell my banking stocks?"
+    FE->>SA: sendPortfolioChatMessage(messages, snapshot_summary)
+    SA->>BE: POST /api/portfolio/chat (with full context)
+    BE->>LLM: Chat with portfolio context
+    LLM-->>BE: Detailed analysis response
+    BE-->>SA: Response
+    SA-->>FE: Render in chat bar with rich formatting
+```
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Stock-level deep dives**: When the user clicks on a specific stock in the dashboard, should it:
+> - A) Open a modal/drawer with an AI-generated summary for that stock (uses an LLM call)
+> - B) Navigate to the existing `/stocks/[ticker]` page
+> - C) Both — show a quick AI summary in a popover, with a link to the full stock page
+
+> [!NOTE]
+> **Data freshness**: The portfolio snapshot will use whatever data is currently in the database (prices, fundamentals, technicals, news). If data is stale (e.g., last synced 2 days ago), the report will note this. We won't trigger live data fetches during analysis to keep the page fast.
+
+---
+
+## Verification Plan
+
+### Manual Verification
+1. Navigate to `/portfolio/analysis` and verify the dashboard loads with real data instantly
+2. Verify the AI health report generates and renders within 30-60 seconds
+3. Test the Copilot chat bar: expand, send messages, verify it has full portfolio context
+4. Check that all metrics (P&L, sector allocation, risk metrics) match the portfolio page data
+5. Test with the user's 78-stock portfolio to ensure performance is acceptable
+6. Verify mobile responsiveness of the dashboard layout

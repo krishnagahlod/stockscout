@@ -1,0 +1,235 @@
+# Strategy Builder Revamp — Implementation Plan
+
+## Problem Statement
+
+The current strategy builder has several shortcomings that make it feel basic and not deeply helpful:
+
+1. **Shallow AI Questioning** — The AI asks only 2-3 generic questions (goal, risk, company size) before jumping to a strategy. It doesn't probe deeper into the investor's actual situation.
+2. **No Investor Profiling** — There's no structured way to capture investment horizon, capital amount, existing portfolio context, tax situation, or behavioral risk tolerance.
+3. **Basic Strategy Templates** — The 6 goal cards (Steady Income, Growth, Low Risk, Undervalued, Momentum, Unsure) map to simplistic filter presets. There are no sophisticated multi-factor templates.
+4. **No Progressive Refinement** — Once the AI suggests a strategy, there's no guided way to refine it step-by-step (e.g., adjust risk, change sector tilt, add/remove factors).
+5. **Missing Risk Framework** — No position sizing guidance, no drawdown budgeting, no correlation analysis between selected stocks.
+6. **No Portfolio Context Awareness** — The strategy builder doesn't know what the user already owns. It could suggest stocks they already hold heavily.
+
+---
+
+## Research Summary
+
+### From Institutional Portfolio Management (CFA / IPS Framework)
+- Strategy construction should follow: **Goals → Constraints → Risk Budget → Asset Allocation → Security Selection → Monitoring**
+- The Investment Policy Statement (IPS) is the foundational document — our AI should help build a personal "mini-IPS" for each strategy
+- Risk should be treated as a **primary input**, not a byproduct
+- Factor investing (Value, Quality, Momentum, Low Volatility) should be the building blocks
+
+### From UX Best Practices
+- **Progressive Disclosure**: Don't show 30+ filters at once. Start broad, refine step-by-step
+- **Live Preview**: Show real-time stock count as filters change
+- **Strategy Presets/Templates**: Solve the "blank page" problem with pre-built starting points
+- **Behavioral Risk Assessment**: Ask scenario-based questions ("How would you react to a 20% drop?") rather than abstract risk levels
+
+### From Competitor Analysis (Smallcase, Streak, Tickertape)
+- Smallcase excels at **themed, curated portfolios** with clear rationale
+- Users want to see the **"why"** behind every stock pick, not just the list
+- Rebalancing alerts and ongoing monitoring are part of the strategy lifecycle
+
+---
+
+## Proposed Changes
+
+### Phase 1: Structured Investor Profiling (New Step Before Chat)
+
+> [!IMPORTANT]
+> This is the most impactful change. Instead of jumping straight into a chat, we guide the user through a structured profiling wizard that feeds context to the AI.
+
+#### [NEW] `frontend/src/components/strategy/investor-profile-wizard.tsx`
+A multi-step wizard (5 screens) that captures:
+
+**Screen 1 — Investment Goal & Horizon**
+- Primary objective: Capital Growth | Regular Income | Capital Preservation | Speculation
+- Time horizon slider: 6 months → 1 year → 3 years → 5 years → 10+ years
+- "When will you need this money?" — concrete date picker
+
+**Screen 2 — Risk Tolerance (Behavioral)**
+- Scenario-based questions instead of abstract "conservative/moderate/aggressive":
+  - "If your portfolio dropped 20% in a month, you would:" → Sell everything / Sell some / Hold tight / Buy more
+  - "Which portfolio would you prefer?" → Show two options with historical best/worst year ranges
+  - "How often do you check your investments?" → Daily / Weekly / Monthly / Rarely
+- These map to a computed risk score (1-10)
+
+**Screen 3 — Capital & Existing Holdings**
+- How much capital are you allocating to this strategy? (₹ amount or range)
+- Do you already own stocks? → Yes (auto-detect from portfolio) / No
+- If yes, show existing holdings and ask: "Should we avoid stocks you already own?"
+- Monthly SIP amount (optional)
+
+**Screen 4 — Preferences & Constraints**
+- Sector preferences: Include/Exclude specific sectors (checkboxes with icons)
+- Market cap preference: Large Cap / Mid Cap / Small Cap / All (visual slider)
+- ESG/ethical constraints: Avoid tobacco, alcohol, gambling, etc.
+- Dividend preference: Don't care / Prefer dividend-paying / Only dividend stocks
+
+**Screen 5 — Experience Level**
+- "How would you describe your investing experience?" → Beginner / Intermediate / Advanced
+- This controls the **language complexity** of AI responses and whether to explain financial terms
+
+---
+
+### Phase 2: AI Conversation Overhaul
+
+#### [MODIFY] [prompt_templates.py](file:///c:/Stock%20AI%20tool/backend/app/services/prompt_templates.py)
+
+Complete rewrite of the strategy chat system prompt to:
+
+1. **Inject the investor profile** as structured context (from Phase 1)
+2. **Ask deeper, smarter questions** in a structured interview:
+   - "You mentioned growth — are you looking for revenue growth (younger companies scaling up) or earnings growth (established companies becoming more profitable)?"
+   - "With a 5-year horizon and moderate risk tolerance, would you prefer to tilt toward quality companies with proven track records, or are you open to some high-conviction bets on emerging leaders?"
+   - "Your existing portfolio is heavy in IT stocks. Should we diversify into different sectors, or double down on tech?"
+3. **Multi-factor strategy suggestions** instead of single-dimension:
+   - Instead of "dividend yield > 3%", suggest: "Quality Dividend: Companies with consistent dividend growth, low payout ratio (sustainable), and strong ROE — weighted 40% dividend yield, 30% ROE, 30% debt-to-equity"
+4. **Market-regime-aware suggestions** — if VIX is high, suggest defensive; if momentum is strong, suggest trend-following
+5. **Portfolio-aware suggestions** — avoid suggesting stocks the user already holds unless specifically requested
+
+#### New AI Conversation Flow:
+```
+Step 1: Profile Summary → AI reads the wizard data and summarizes understanding
+Step 2: Deep-Dive Question → One smart, contextual question based on profile gaps  
+Step 3: Factor Selection → AI proposes 2-3 strategy approaches to choose from
+Step 4: Refinement → User picks one, AI refines with specific filters
+Step 5: Preview → Live stock count + top 5 stocks shown inline
+Step 6: Finalize → Full strategy with risk parameters
+```
+
+---
+
+### Phase 3: Strategy Template Library
+
+#### [NEW] `frontend/src/components/strategy/template-library.tsx`
+
+Instead of (or in addition to) the 6 basic goal cards, offer a library of **sophisticated, pre-built strategy templates** inspired by real institutional approaches:
+
+| Template | Description | Factors Used |
+|----------|-------------|-------------|
+| **Coffee Can Portfolio** | Buy-and-forget quality stocks held for 10+ years | ROE > 15%, Revenue growth > 10%, Low debt |
+| **Dividend Aristocrats India** | Companies with consistent dividend growth | Dividend yield, payout ratio, earnings stability |
+| **GARP (Growth at Reasonable Price)** | High growth but not overvalued | PEG ratio proxy, earnings growth, PE < 25 |
+| **Momentum + Quality** | Trending stocks with solid fundamentals | 12-month momentum, ROE, operating margin |
+| **Low Volatility Shield** | Defensive portfolio for uncertain times | Low beta, low volatility, high margin of safety |
+| **Small Cap Hidden Gems** | Under-the-radar quality small caps | Market cap < 5000 Cr, ROE > 18%, revenue growth |
+| **Contrarian Value** | Out-of-favor quality at bargain prices | Low P/B, low P/E, high ROE (quality trap filter) |
+| **Sector Rotation** | Momentum-based sector allocation | Sector momentum, breadth, relative strength |
+
+Each template comes with:
+- Pre-filled filters and ranking weights
+- A clear explanation of the investment thesis
+- Historical context of when this strategy works best
+- Risk warnings and suitability notes
+
+Users can load a template and then customize it through the AI chat.
+
+---
+
+### Phase 4: Visual Strategy Composer
+
+#### [NEW] `frontend/src/components/strategy/visual-composer.tsx`
+
+For intermediate/advanced users who prefer visual control over chat, add a **drag-and-drop strategy composer** as an alternative to the chat:
+
+- **Factor Pills**: Draggable factor cards (Value, Quality, Momentum, Low Vol, Growth, Dividend) that can be arranged in a priority stack
+- **Weight Sliders**: Visual sliders for each factor's weight (sum to 100%)
+- **Filter Builder**: Visual filter cards with dropdowns (metric → operator → value) with live stock count
+- **Risk Controls Panel**: 
+  - Position sizing method selector (Equal / Inverse Volatility / Risk Parity)
+  - Max position size slider (e.g., 5-15%)
+  - Stop-loss / ATR trailing stop configuration
+  - Maximum sector concentration limit
+- **Live Preview Sidebar**: As you adjust anything, the right panel shows:
+  - Number of matching stocks
+  - Top 5 stocks with key metrics
+  - Estimated portfolio characteristics (avg PE, avg dividend yield, avg beta, sector breakdown)
+
+---
+
+### Phase 5: Enhanced Risk Management Integration
+
+#### [MODIFY] Strategy rules schema to support:
+
+```json
+{
+  "risk_management": {
+    "max_position_pct": 0.10,
+    "max_sector_pct": 0.30,
+    "trailing_stop_atr_multiple": 2.0,
+    "hard_stop_loss_pct": 0.08,
+    "take_profit_pct": 0.25,
+    "correlation_limit": 0.7,
+    "max_drawdown_budget_pct": 0.15
+  },
+  "portfolio_construction": {
+    "position_sizing": "inverse_volatility",
+    "rebalance_frequency": "quarterly",
+    "rebalance_trigger_drift_pct": 0.05,
+    "cash_reserve_pct": 0.05
+  }
+}
+```
+
+The AI should proactively suggest risk parameters based on the investor profile:
+- Conservative investor → Hard 8% stop-loss, max 5% position, 10% max drawdown budget
+- Aggressive investor → 2x ATR trailing stop, max 15% position, 25% max drawdown budget
+
+---
+
+### Phase 6: Post-Build Intelligence & Ongoing Strategy Management
+
+#### [MODIFY] Strategy detail page to include:
+
+1. **Strategy Health Score** — Real-time score (0-100) based on how many stocks still meet the original criteria
+2. **Drift Alerts** — Notify when a stock's fundamentals have drifted away from the strategy's filters
+3. **Rebalance Suggestions** — "3 stocks no longer qualify. 2 new stocks now meet your criteria. Review?"
+4. **Performance Attribution** — Which factors (value, momentum, quality) contributed most to performance
+5. **Comparison View** — Compare your strategy's performance against Nifty 50, Nifty 500, and other saved strategies
+
+---
+
+## Open Questions for You
+
+> [!IMPORTANT]
+> I need your input on these before I proceed with implementation:
+
+1. **Profiling Wizard vs. Enhanced Chat**: Do you want the structured 5-screen wizard as a separate step before the chat, or should I integrate those questions INTO the AI chat as a guided conversation? 
+   - Wizard Pros: More structured, faster, consistent data capture
+   - Chat Pros: More natural, less "form-filling" feel
+
+2. **Visual Composer Priority**: The drag-and-drop visual strategy composer (Phase 4) is a significant engineering effort. Should I:
+   - Build it now as a primary feature alongside the chat?
+   - Build a simpler version (just visual sliders for weights, no drag-drop)?
+   - Defer it to a later sprint and focus on the AI chat improvements first?
+
+3. **Template Library Scope**: For the pre-built strategy templates, should I:
+   - Start with 5-6 core templates and add more over time?
+   - Build a full library of 10-15 templates from day one?
+   - Allow you to create custom templates that other users could eventually use?
+
+4. **Existing Holdings Integration**: When building a strategy, should the AI:
+   - Always auto-load the user's current portfolio context?
+   - Ask the user if they want to consider existing holdings?
+   - Keep strategy building completely separate from portfolio management?
+
+5. **Experience-Based UI Modes**: Should beginner users see a fundamentally different UI (simpler, more guided) than advanced users, or should everyone see the same interface with different levels of explanation?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Unit tests for the new investor profile schema validation
+- Integration tests for the enhanced AI chat endpoint with profile context injection
+- Screener tests to verify template strategies return reasonable stock counts
+
+### Manual Verification
+- Walk through the complete flow as a beginner investor (profiling → chat → build → save)
+- Walk through as an advanced investor (template → customize → visual composer → save)
+- Verify that the AI asks meaningfully different questions based on different investor profiles
+- Check that existing portfolio context correctly excludes already-held stocks
+- Test all pre-built templates to ensure they return >10 stocks each

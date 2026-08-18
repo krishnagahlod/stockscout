@@ -1,0 +1,413 @@
+# Custom Stock Portfolio Feature
+
+Allow users to hand-pick individual stocks (beyond strategy-recommended ones) and create custom portfolios that get the full suite of platform features — backtest, playbook, drift monitoring, rebalance, and alerts.
+
+## Architecture Summary
+
+The core design insight: **a custom portfolio is just a strategy with `strategy_type = "custom"`** and its stock list stored in `rules_json` instead of filter/ranking rules. This means we can reuse ~90% of the existing infrastructure (backtest, playbook, drift monitor, rebalance, alerts) with targeted modifications.
+
+```mermaid
+graph TB
+    A[Strategies Page] --> B["Build with AI"]
+    A --> C["Manual Screener"]
+    A --> D["🆕 Create Custom Portfolio"]
+    D --> E[Stock Search & Add UI]
+    E --> F[Save as Strategy type=custom]
+    F --> G[Strategy Detail Page]
+    G --> H[Overview Tab]
+    G --> I[AI Playbook Tab]
+    G --> J[Backtest Tab]
+    G --> K[Monitor & Drift Tab]
+    G --> L[Rebalance Tab]
+    G --> M[Stocks Tab - editable]
+```
+
+---
+
+## Proposed Changes
+
+### Backend: Data Model
+
+#### [MODIFY] [db_models.py](file:///c:/Stock%20AI%20tool/backend/app/models/db_models.py)
+
+Add a `strategy_type` column to the `Strategy` model to distinguish custom portfolios from rule-based strategies:
+
+```python
+# New column on Strategy model
+strategy_type = Column(Text, default="rule_based")  # "rule_based" | "custom"
+```
+
+No new tables required. Custom portfolios store their stock list inside `rules_json` using a new format:
+
+```json
+{
+  "name": "My Tech Portfolio",
+  "strategy_type": "custom",
+  "universe": "custom",
+  "stocks": [
+    { "symbol": "RELIANCE.NS", "name": "Reliance Industries", "weight": 0.25 },
+    { "symbol": "TCS.NS", "name": "Tata Consultancy", "weight": 0.25 },
+    { "symbol": "INFY.NS", "name": "Infosys", "weight": 0.25 },
+    { "symbol": "HDFCBANK.NS", "name": "HDFC Bank", "weight": 0.25 }
+  ],
+  "position_sizing": "equal",
+  "rebalance": { "frequency": "quarterly" },
+  "stop_loss_pct": null,
+  "take_profit_pct": null,
+  "trailing_stop_atr_multiple": null
+}
+```
+
+---
+
+#### [MODIFY] [strategy_schemas.py](file:///c:/Stock%20AI%20tool/backend/app/models/strategy_schemas.py)
+
+Add new Pydantic models for the custom portfolio variant:
+
+```python
+class CustomStock(BaseModel):
+    symbol: str
+    name: str
+    weight: Optional[float] = None  # null = auto-calculated
+
+class CustomPortfolioRules(BaseModel):
+    name: str
+    strategy_type: str = "custom"
+    universe: str = "custom"
+    stocks: list[CustomStock]
+    position_sizing: str = "equal"  # "equal" | "inverse_volatility" | "custom"
+    rebalance: Optional[RebalanceConfig] = None
+    stop_loss_pct: Optional[float] = None
+    take_profit_pct: Optional[float] = None
+    trailing_stop_atr_multiple: Optional[float] = None
+    max_stock_drawdown_pct: Optional[float] = None
+```
+
+Also update `StrategyCreate` to accept an optional `strategy_type` field.
+
+---
+
+### Backend: Stock Search API
+
+#### [MODIFY] [stocks.py](file:///c:/Stock%20AI%20tool/backend/app/routers/stocks.py)
+
+Add a new endpoint for searching ALL stocks (not just Nifty 500) for the custom portfolio picker:
+
+```python
+@router.get("/search-all")
+async def search_all_stocks(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search across ALL stocks in the database (not just Nifty 500).
+    Returns results with a flag indicating whether we have historical data."""
+    search_term = f"%{q}%"
+    query = (
+        select(Stock)
+        .where((Stock.symbol.ilike(search_term)) | (Stock.name.ilike(search_term)))
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    stocks = result.scalars().all()
+    
+    # Check which stocks have price data
+    output = []
+    for s in stocks:
+        has_data = s.symbol in price_cache  # or quick DB check
+        output.append({
+            "symbol": s.symbol,
+            "name": s.name,
+            "sector": s.sector,
+            "market_cap_cr": s.market_cap_cr,
+            "is_nifty500": s.is_nifty500,
+            "has_price_data": has_data,
+        })
+    return output
+```
+
+> [!NOTE]
+> For stocks NOT in Nifty 500, we'll show a subtle warning badge in the UI: *"Limited data — backtest may not be available"*. This keeps things honest without blocking the user.
+
+---
+
+### Backend: Backtest Engine Changes
+
+#### [MODIFY] [backtest_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/backtest_service.py)
+
+The `PortfolioBacktester._select_stocks_at_date()` method currently runs the rule engine (filters → rank → select). For custom portfolios, we bypass the rule engine entirely and return the fixed stock list with their weights.
+
+Key change in `_select_stocks_at_date()`:
+```python
+def _select_stocks_at_date(self, as_of: pd.Timestamp) -> dict[str, float]:
+    # NEW: If custom portfolio, return fixed stocks + weights
+    if getattr(self.rules, 'strategy_type', None) == 'custom':
+        return self._get_custom_weights()
+    
+    # ... existing filter/rank/select logic ...
+```
+
+New helper method:
+```python
+def _get_custom_weights(self) -> dict[str, float]:
+    """Return fixed weights for custom portfolio stocks."""
+    stocks = getattr(self.rules, 'stocks', [])
+    if not stocks:
+        return {}
+    
+    if self.rules.position_sizing == "custom":
+        return {s.symbol: s.weight for s in stocks if s.weight}
+    elif self.rules.position_sizing == "inverse_volatility":
+        # Calculate from current data
+        ...
+    else:
+        # Equal weight
+        w = 1.0 / len(stocks)
+        return {s.symbol: w for s in stocks}
+```
+
+Also update `load_data()` to handle the `universe: "custom"` case — skip index membership filtering and only load data for the specific stocks in the custom list.
+
+---
+
+### Backend: Playbook & LLM Integration
+
+#### [MODIFY] [playbook_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/playbook_service.py)
+
+For custom portfolios, the playbook service needs to skip the rule engine step and instead directly use the user's stock list:
+
+```python
+async def generate_playbook(self, db, rules, strategy_id=None):
+    if getattr(rules, 'strategy_type', None) == 'custom':
+        # Build ScoredUniverse directly from the custom stock list
+        scored_res = self._build_custom_scored_universe(rules)
+    else:
+        scored_res = await rule_engine.run(extended_rules, db)
+    # ... rest of playbook generation unchanged ...
+```
+
+The playbook output (entry/exit zones, ATR stops, targets, market outlook) will work identically since it's driven by price data, not strategy rules.
+
+---
+
+### Backend: Rule Engine Passthrough
+
+#### [MODIFY] [rule_engine.py](file:///c:/Stock%20AI%20tool/backend/app/services/rule_engine.py)
+
+Add a fast path for custom portfolios in `RuleEngine.run()`:
+
+```python
+async def run(self, rules: StrategyRules, db: AsyncSession) -> ScoredUniverse:
+    if getattr(rules, 'strategy_type', None) == 'custom':
+        return await self._run_custom(rules, db)
+    # ... existing filter/rank logic ...
+
+async def _run_custom(self, rules, db) -> ScoredUniverse:
+    """For custom portfolios, just load the selected stocks' data."""
+    symbols = [s.symbol for s in rules.stocks]
+    # Load stock metadata + latest fundamentals
+    # Return ScoredUniverse with the fixed stock list
+```
+
+---
+
+### Backend: Strategy Router
+
+#### [MODIFY] [strategies.py](file:///c:/Stock%20AI%20tool/backend/app/routers/strategies.py)
+
+Minor update: set `strategy_type` from the payload when creating a strategy. The existing create endpoint already handles `rules_json` as arbitrary JSON, so this is minimal.
+
+---
+
+### Frontend: New Custom Portfolio Builder Page
+
+#### [NEW] [page.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/custom/page.tsx)
+
+A dedicated page for building a custom portfolio. The UX flow:
+
+1. **Header**: "Build Custom Portfolio" with a name input field
+2. **Stock Search Bar**: Type-ahead search box that queries `/api/stocks/search-all`
+3. **Selected Stocks List**: A card-based list of added stocks with:
+   - Stock name & symbol
+   - Sector badge
+   - Weight input (if custom weighting is selected)
+   - Remove button
+   - Warning badge if the stock has no historical data
+4. **Portfolio Settings Panel**: 
+   - Position sizing toggle (Equal / Inverse Volatility / Custom)
+   - Rebalance frequency dropdown
+   - Optional stop-loss/take-profit inputs
+5. **Save Button**: Creates the strategy and navigates to the detail page
+
+```
+┌─────────────────────────────────────────────┐
+│  Build Custom Portfolio                      │
+│  Name: [My Tech Portfolio            ]       │
+├─────────────────────────────────────────────┤
+│  🔍 Search stocks...                         │
+│  ┌──────────────────────────────────────┐   │
+│  │ RELIANCE.NS  Reliance Industries  ✕  │   │
+│  │ IT sector · ₹18,52,340 Cr · 25%     │   │
+│  ├──────────────────────────────────────┤   │
+│  │ TCS.NS  Tata Consultancy Services ✕  │   │
+│  │ IT sector · ₹13,87,200 Cr · 25%     │   │
+│  ├──────────────────────────────────────┤   │
+│  │ HDFCBANK.NS  HDFC Bank           ✕  │   │
+│  │ Banking · ₹12,34,000 Cr · 25%       │   │
+│  ├──────────────────────────────────────┤   │
+│  │ INFY.NS  Infosys                 ✕  │   │
+│  │ IT sector · ₹6,82,000 Cr · 25%      │   │
+│  └──────────────────────────────────────┘   │
+│                                              │
+│  Position Sizing: [Equal ▾]                  │
+│  Rebalance: [Quarterly ▾]                    │
+│  Stop Loss: [  ] %   Take Profit: [  ] %    │
+│                                              │
+│  [💾 Save & View Strategy]                   │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+#### [MODIFY] [page.tsx (strategies list)](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/page.tsx)
+
+Add a third button to the strategies list page header:
+
+```tsx
+<Link href="/strategies/custom">
+  <Button variant="outline">
+    <Plus className="mr-2 h-4 w-4" />
+    Custom Portfolio
+  </Button>
+</Link>
+```
+
+Also add a visual indicator on strategy cards for custom portfolios vs rule-based (e.g., a small "Custom" or "AI-Built" badge).
+
+---
+
+#### [MODIFY] [page.tsx (strategy detail)](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/[id]/page.tsx)
+
+Adapt the strategy detail page to handle custom portfolios:
+
+- **Overview tab**: Instead of showing filter rules, show the list of selected stocks with their weights
+- **Stocks tab**: Make the stock list editable (add/remove stocks, adjust weights)  
+- **All other tabs** (Playbook, Backtest, Monitor, Rebalance): Work as-is since they ultimately receive a stock list + weights
+
+```tsx
+// In the overview section, detect custom portfolio
+const isCustom = parsedRules?.strategy_type === 'custom';
+
+{isCustom ? (
+  <CustomPortfolioOverview stocks={parsedRules.stocks} sizing={parsedRules.position_sizing} />
+) : (
+  <PlainEnglishRules explanation={rulesExplanation} isLoading={...} />
+)}
+```
+
+---
+
+#### [NEW] [stock-search-input.tsx](file:///c:/Stock%20AI%20tool/frontend/src/components/strategy/stock-search-input.tsx)
+
+A reusable debounced search component that:
+- Calls `/api/stocks/search-all?q=...` on keystroke (300ms debounce)
+- Shows a dropdown of matching results
+- Displays `⚠️ No historical data` warning for non-Nifty 500 stocks
+- Calls `onSelect(stock)` when the user clicks a result
+
+#### [NEW] [custom-portfolio-overview.tsx](file:///c:/Stock%20AI%20tool/frontend/src/components/strategy/custom-portfolio-overview.tsx)
+
+A component that replaces `PlainEnglishRules` for custom portfolios — shows the stock list in a clean card layout with weights visualized as a donut chart or horizontal bars.
+
+---
+
+### Frontend: API Client & Hooks
+
+#### [MODIFY] [api.ts](file:///c:/Stock%20AI%20tool/frontend/src/lib/api.ts)
+
+Add new API function:
+
+```typescript
+export interface SearchStockResult {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  market_cap_cr: number | null;
+  is_nifty500: boolean;
+  has_price_data: boolean;
+}
+
+export async function searchAllStocks(q: string): Promise<SearchStockResult[]> {
+  const { data } = await api.get("/stocks/search-all", { params: { q } });
+  return data;
+}
+```
+
+#### [NEW] [use-stock-search.ts](file:///c:/Stock%20AI%20tool/frontend/src/hooks/use-stock-search.ts)
+
+React Query hook wrapping the search with debounce:
+
+```typescript
+export function useStockSearch(query: string) {
+  return useQuery({
+    queryKey: ["stock-search", query],
+    queryFn: () => searchAllStocks(query),
+    enabled: query.length >= 1,
+    staleTime: 60_000,
+  });
+}
+```
+
+---
+
+## Files Changed Summary
+
+| Layer | File | Action | Description |
+|-------|------|--------|-------------|
+| Backend Model | `db_models.py` | MODIFY | Add `strategy_type` column to Strategy |
+| Backend Schema | `strategy_schemas.py` | MODIFY | Add `CustomStock`, `CustomPortfolioRules` models |
+| Backend Router | `stocks.py` | MODIFY | Add `/search-all` endpoint |
+| Backend Router | `strategies.py` | MODIFY | Handle `strategy_type` in create |
+| Backend Service | `backtest_service.py` | MODIFY | Custom portfolio fast path in selection |
+| Backend Service | `rule_engine.py` | MODIFY | Custom portfolio fast path |
+| Backend Service | `playbook_service.py` | MODIFY | Skip rule engine for custom portfolios |
+| Frontend Page | `strategies/custom/page.tsx` | NEW | Custom portfolio builder UI |
+| Frontend Page | `strategies/page.tsx` | MODIFY | Add "Custom Portfolio" button |
+| Frontend Page | `strategies/[id]/page.tsx` | MODIFY | Handle custom portfolio display |
+| Frontend Component | `stock-search-input.tsx` | NEW | Stock search autocomplete |
+| Frontend Component | `custom-portfolio-overview.tsx` | NEW | Custom portfolio overview card |
+| Frontend API | `api.ts` | MODIFY | Add `searchAllStocks` |
+| Frontend Hook | `use-stock-search.ts` | NEW | Debounced search hook |
+| Database | Migration | NEW | Add `strategy_type` column |
+
+---
+
+## What Already Works Without Changes
+
+These features will work automatically for custom portfolios because they operate on the **strategy's resolved stock list**, not on its rules:
+
+- ✅ **AI Playbook** — Generates entry/exit zones, ATR stops, and targets from price data
+- ✅ **Drift Monitor** — Tracks weight drift from target allocations
+- ✅ **Rebalance Engine** — Calculates buy/sell orders to restore target weights
+- ✅ **Alerts** — Thesis break alerts work on any stock in a strategy
+- ✅ **Portfolio Optimization** — MVO/Risk Parity works on any stock list
+
+---
+
+## Verification Plan
+
+### Automated Tests
+1. Create a custom portfolio via API → verify it saves correctly with `strategy_type = "custom"`
+2. Run backtest on a custom portfolio → verify it uses fixed stocks instead of rule engine
+3. Run screener on a custom portfolio → verify it returns the exact stock list
+4. Search stocks with `/search-all` → verify it returns non-Nifty 500 stocks
+
+### Manual Verification
+1. Build a custom portfolio in the UI → add 5 stocks → save → verify it appears on strategies list with "Custom" badge
+2. Open the strategy detail → verify all tabs work (Overview, Playbook, Backtest, Monitor, Rebalance, Stocks)
+3. Edit the stock list on the Stocks tab → add/remove a stock → verify changes persist
+4. Run a backtest on the custom portfolio → verify correct results
+5. Add a non-Nifty 500 stock → verify the warning badge appears and backtest gracefully handles missing data
+
+> [!IMPORTANT]
+> **Database migration needed**: We need to add the `strategy_type` column to the existing `strategies` table. Existing strategies will default to `"rule_based"`.

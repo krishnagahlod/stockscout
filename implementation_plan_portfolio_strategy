@@ -1,0 +1,288 @@
+# Strategy Intelligence Engine v2: Comprehensive Upgrade
+
+## Background & Problem Statement
+
+The current strategy building system in StockScout is functional but has significant gaps when compared to institutional-grade portfolio construction frameworks. Based on my analysis of the existing codebase and extensive research into academic best practices (multi-factor portfolio construction, regime-aware investing, systematic entry/exit frameworks), I've identified these key shortcomings:
+
+### Current System Limitations
+
+| Area | Current State | Gap |
+|:---|:---|:---|
+| **Strategy Creation** | AI chat → static JSON filters + weights | No macro/news awareness, no regime sensitivity, no future outlook |
+| **Stock Selection** | Min-Max normalized composite score | No quality/momentum/value factor blending, no sector rotation logic |
+| **Risk Management** | Static `stop_loss_pct` and `take_profit_pct` fields exist but are *never used* anywhere | No ATR-based stops, no trailing stops, no drawdown limits |
+| **Rebalancing** | Calendar-based only (quarterly/monthly) | No drift-based triggers, no regime-aware rebalancing |
+| **Entry/Exit Guidance** | None | No signals, no playbook, no pre-guidance for when to act |
+| **Market Context** | Hardcoded `MARKET_REGIME_CONTEXT` string in prompt templates | No live data, no real macro overlay, no dynamic factor adjustment |
+| **Post-Strategy Monitoring** | Basic alert service for news | No strategy health monitoring, no rebalance alerts, no drift tracking |
+| **News Integration** | Sentiment score on news items, but not used in strategy creation | Not factored into stock selection or regime detection |
+
+---
+
+## Proposed Architecture
+
+The upgrade transforms the system from a static filter-and-rank screener into a **Strategy Intelligence Engine** with five interconnected layers:
+
+```mermaid
+graph TD
+    A["1. Macro Context Engine"] --> B["2. Strategy Builder v2"]
+    B --> C["3. Smart Stock Selection"]
+    C --> D["4. Strategy Playbook Generator"]
+    D --> E["5. Live Strategy Monitor"]
+    E -->|"Rebalance/Exit Signals"| B
+```
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Scope Decision:** This is a large upgrade touching backend services, API endpoints, prompt engineering, and frontend UI. I recommend implementing it in **3 phases** (see Phased Rollout below). Phase 1 alone delivers the highest-impact features. Do you want all 3 phases, or should I focus on Phase 1 first?
+
+> [!IMPORTANT]
+> **Live Macro Data Source:** The current `MARKET_REGIME_CONTEXT` is hardcoded. To make it live, I need a data source for India VIX, RBI repo rate, and CPI. Options:
+> - **Option A:** Fetch India VIX from Yahoo Finance (`^INDIAVIX`) + hardcode macro values that update monthly
+> - **Option B:** Scrape RBI/MOSPI data APIs (more complex, fragile)
+> - **Option C:** Use the existing regime detector output + VIX from yfinance (simplest, recommended)
+> Which approach do you prefer?
+
+## Open Questions
+
+> [!IMPORTANT]
+> 1. **Position Sizing:** Currently supports "equal" and "inverse_volatility". Should we add **risk parity** (equal risk contribution per stock) as a third option?
+> 2. **ATR Data:** We don't currently compute ATR in the `TechnicalFeature` table. The backtest service references `atr_14` in the metric map but it may not be populated. Should I add ATR computation to the feature pipeline?
+> 3. **Notification Channel:** For rebalance/exit alerts from the Strategy Monitor, should these go through the existing alert system (in-app notifications) or also support email/Telegram?
+
+---
+
+## Proposed Changes
+
+### Phase 1: Enhanced Strategy Builder + Playbook (High Impact)
+
+This phase upgrades the AI conversation, adds live market context, and generates an actionable playbook with entry/exit guidance for every selected stock.
+
+---
+
+#### Component 1: Live Macro Context Service
+
+##### [NEW] [macro_context_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/macro_context_service.py)
+
+A new service that assembles **live** macro context instead of the hardcoded string. It will:
+
+- Fetch **India VIX** from yfinance (`^INDIAVIX`)
+- Pull the current **market regime** from the existing `regime_detector`
+- Compute **sector momentum** (top 3 and bottom 3 sectors by 1-month return across Nifty 500)
+- Compute **market breadth** (% of Nifty 500 stocks above their 200-day SMA)
+- Compute **aggregate news sentiment** (average sentiment score across all recent news items)
+- Return a structured `MacroContext` object used by the strategy chat and playbook generator
+
+```python
+class MacroContext(BaseModel):
+    regime: str                    # "bull", "bear", "sideways"
+    regime_confidence: float       # 0-1
+    vix: float                     # India VIX value
+    vix_zone: str                  # "low" (<15), "moderate" (15-25), "high" (>25)
+    market_breadth_pct: float      # % stocks above 200-SMA
+    top_sectors: list[SectorMomentum]
+    bottom_sectors: list[SectorMomentum]
+    aggregate_news_sentiment: float  # -1 to 1
+    macro_summary: str             # AI-generated 2-3 sentence summary
+```
+
+##### [MODIFY] [prompt_templates.py](file:///c:/Stock%20AI%20tool/backend/app/services/prompt_templates.py)
+
+- Replace the hardcoded `MARKET_REGIME_CONTEXT` string with a `{macro_context}` placeholder that gets filled dynamically
+- Update `STRATEGY_CHAT_SYSTEM` to instruct the AI to consider live market conditions
+- Update `STRATEGY_PARSE_SYSTEM` similarly
+- Add new prompt: `STRATEGY_PLAYBOOK_SYSTEM` for generating the actionable playbook (see Component 3)
+
+---
+
+#### Component 2: Enhanced Strategy Chat (AI Conversation)
+
+##### [MODIFY] [llm.py](file:///c:/Stock%20AI%20tool/backend/app/routers/llm.py)
+
+Update the `/llm/chat` endpoint to:
+1. Fetch live `MacroContext` before each conversation turn
+2. Inject it into the system prompt so the AI's recommendations are contextually grounded
+3. When finalizing, include macro context in the finalization prompt so the output JSON reflects regime awareness
+
+##### [MODIFY] [strategy_schemas.py](file:///c:/Stock%20AI%20tool/backend/app/models/strategy_schemas.py)
+
+Extend `StrategyRules` with new fields:
+
+```python
+class StrategyRules(BaseModel):
+    # ... existing fields ...
+    
+    # NEW: Risk management rules
+    stop_loss_pct: Optional[float] = None       # (exists but unused → now used)
+    take_profit_pct: Optional[float] = None     # (exists but unused → now used)
+    trailing_stop_atr_multiple: Optional[float] = Field(None, description="ATR multiple for trailing stop (e.g., 2.0 = 2x ATR)")
+    max_stock_drawdown_pct: Optional[float] = Field(None, description="Max drawdown per stock before forced exit (e.g., 0.25 = 25%)")
+    
+    # NEW: Regime-aware configuration
+    regime_adjustments: Optional[RegimeAdjustments] = None
+
+class RegimeAdjustments(BaseModel):
+    """How the strategy should adapt to different market regimes."""
+    bear_action: str = "reduce_beta"  # "reduce_beta", "shift_defensive", "hold", "increase_cash"
+    bull_action: str = "hold"         # "increase_exposure", "shift_cyclical", "hold"
+    rebalance_on_regime_change: bool = True
+```
+
+---
+
+#### Component 3: Strategy Playbook Generator
+
+This is the **flagship new feature** — after a strategy is created and stocks are selected, the system generates a comprehensive **Strategy Playbook** document.
+
+##### [NEW] [playbook_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/playbook_service.py)
+
+A new service that generates a structured playbook for a strategy. For each selected stock, it provides:
+
+**Per-Stock Playbook Entry:**
+| Field | Description | Source |
+|:---|:---|:---|
+| `entry_zone` | Suggested price range for entry | SMA levels, support/resistance |
+| `entry_signals` | Conditions to confirm entry | RSI < 40 + MACD bullish crossover |
+| `initial_stop_loss` | Where to place the stop | ATR-based (2x ATR below entry) |
+| `trailing_stop` | How to trail the stop as price rises | ATR trailing or % trailing |
+| `take_profit_targets` | 1-3 price targets for partial exits | Fibonacci / % targets |
+| `exit_signals` | Conditions that trigger a full exit | RSI > 75 + MACD bearish, or stop hit |
+| `risk_per_stock` | Max capital at risk | Position size × stop distance |
+| `key_metrics_to_watch` | Which fundamentals to monitor | Earnings, debt ratio, margins |
+| `news_catalysts` | Recent news context + what to watch for | From news service |
+| `regime_guidance` | How this stock behaves in different regimes | Beta, sector cyclicality |
+
+**Strategy-Level Playbook:**
+| Field | Description |
+|:---|:---|
+| `market_outlook` | Current macro context + 3-6 month outlook |
+| `rebalance_schedule` | When and how to rebalance |
+| `rebalance_triggers` | Drift thresholds or regime changes that warrant early rebalance |
+| `overall_risk_budget` | Total portfolio risk (VaR-like estimate) |
+| `sector_allocation_rationale` | Why the selected sector mix makes sense now |
+| `watchlist` | Stocks that almost made the cut + conditions under which they should be added |
+
+##### [NEW] [playbook.py](file:///c:/Stock%20AI%20tool/backend/app/routers/playbook.py)
+
+New API endpoint:
+- `POST /api/playbook/generate` — Takes strategy rules + screened stocks + macro context → returns the full playbook JSON
+- `GET /api/playbook/{strategy_id}` — Returns the cached playbook for a saved strategy
+
+##### Prompt Engineering
+
+The playbook generation uses a two-pass approach:
+1. **Pass 1 (Deterministic):** Compute all quantitative signals (entry zones from SMA, stops from ATR, technical signals) directly in Python — no LLM needed for numbers
+2. **Pass 2 (LLM):** Feed the quantitative data + news + macro context into a specialized prompt that generates the qualitative guidance (outlook narratives, regime commentary, catalyst interpretation)
+
+This ensures numbers are always accurate (not hallucinated) while the LLM adds interpretive value.
+
+---
+
+#### Component 4: Frontend — Strategy Playbook UI
+
+##### [MODIFY] [create/page.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/create/page.tsx)
+
+After the strategy is finalized, add a new **"Generate Playbook"** step that:
+- Shows a beautiful, expandable playbook document
+- Each stock has a card with entry zone, stop loss, targets, and signals visualized
+- Market outlook section at the top with the macro context summary
+- Rebalancing schedule with calendar view
+
+##### [NEW] [playbook-view.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/[id]/playbook-view.tsx)
+
+A dedicated playbook component that renders:
+- **Market Context Header:** Regime badge, VIX level, breadth indicator
+- **Stock Playbook Cards:** For each selected stock — entry/exit zones, stop-loss levels, key metrics, news catalysts
+- **Rebalance Calendar:** Visual calendar showing scheduled rebalance dates + drift-triggered alerts
+- **Risk Dashboard:** Portfolio-level risk metrics (max drawdown estimate, beta, concentration)
+
+##### [MODIFY] [[id]/page.tsx](file:///c:/Stock%20AI%20tool/frontend/src/app/(app)/strategies/[id]/page.tsx)
+
+Add a new **"Playbook"** tab alongside existing "Overview", "Stocks", and "Backtest" tabs.
+
+---
+
+### Phase 2: Smart Rebalancing & Live Monitoring (Medium Impact)
+
+This phase adds drift detection, regime-triggered rebalancing, and live strategy health monitoring.
+
+---
+
+#### [NEW] [strategy_monitor_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/strategy_monitor_service.py)
+
+A scheduled background service (runs daily) that for each **active** strategy:
+1. Checks if any stock has hit its stop-loss or take-profit from the playbook
+2. Computes portfolio drift from target weights
+3. Checks if the market regime has changed since the strategy was last rebalanced
+4. Generates alerts through the existing alert system when action is needed
+
+#### [MODIFY] [scheduler_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/scheduler_service.py)
+
+Add a new scheduled job: `job_monitor_strategies` (runs daily at market close)
+
+#### [MODIFY] [alert_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/alert_service.py)
+
+Add new alert types:
+- `REBALANCE_DUE` — Scheduled rebalance date reached
+- `DRIFT_ALERT` — Portfolio drifted beyond threshold
+- `STOP_LOSS_HIT` — A stock in the strategy hit its stop-loss level
+- `TAKE_PROFIT_HIT` — A stock reached a take-profit target
+- `REGIME_CHANGE` — Market regime shifted (e.g., bull → sideways)
+
+---
+
+### Phase 3: Advanced Factor Engine & Walk-Forward Validation (Lower Priority)
+
+This phase adds academically-rigorous factor decomposition and out-of-sample validation.
+
+---
+
+#### [MODIFY] [rule_engine.py](file:///c:/Stock%20AI%20tool/backend/app/services/rule_engine.py)
+
+Upgrade the ranking system to use a proper **multi-factor model** with:
+- **Z-score normalization** instead of Min-Max (more robust to outliers)
+- **Factor orthogonalization** (remove value/momentum correlation)
+- **Sector-neutral factor scores** (rank within sectors first)
+
+#### [NEW] [walk_forward_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/walk_forward_service.py)
+
+Implements walk-forward analysis for strategy validation:
+- Splits history into rolling train/test windows
+- Runs the strategy on each window
+- Reports stability of returns across windows
+- Flags strategies that may be overfit
+
+#### [MODIFY] [feature_service.py](file:///c:/Stock%20AI%20tool/backend/app/services/feature_service.py)
+
+Add computation of:
+- **ATR (14-day)** — needed for volatility-based stops
+- **MACD histogram** — for entry/exit signal confirmation
+- **52-week high/low distance** — for support/resistance zones
+
+---
+
+## Phased Rollout
+
+| Phase | Scope | Effort | Impact |
+|:---|:---|:---|:---|
+| **Phase 1** | Macro Context + Enhanced Chat + Playbook Generator + Playbook UI | ~3-4 days | 🔥 High — transforms the strategy from a static screener into an actionable investment plan |
+| **Phase 2** | Strategy Monitor + Drift Detection + Live Alerts | ~2 days | 🔶 Medium — adds ongoing value after strategy creation |
+| **Phase 3** | Factor Engine v2 + Walk-Forward Validation | ~2 days | 🔵 Lower — academic rigor, mostly backend |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Test `MacroContext` assembly with mock yfinance/regime data
+- Test playbook generation deterministic path (entry zones, stop losses) with known stock data
+- Test drift detection logic with mock portfolio weights
+
+### Manual Verification
+- Create a strategy via the chat, verify macro context appears in AI responses
+- Generate a playbook and verify per-stock entry/exit guidance is quantitatively sound
+- Trigger a regime change and verify the alert fires
+- End-to-end: Create strategy → Generate playbook → Save → View playbook tab on strategy detail page

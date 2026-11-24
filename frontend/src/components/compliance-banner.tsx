@@ -25,10 +25,10 @@ export function ComplianceBanner() {
     <div className="w-full bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-2 text-slate-500 z-50">
       <div className="flex items-center justify-center gap-2 flex-1">
         <Info className="h-4 w-4 shrink-0 text-slate-400" />
-        <p className="text-[11px] sm:text-xs font-medium text-center tracking-wide">
-          INFORMATIONAL AI TOOL • NOT SEBI REGISTERED INVESTMENT ADVICE •{" "}
+        <p className="text-[11px] sm:text-xs font-medium text-center">
+          Information, not investment advice. StockScout is not registered with SEBI and gives no buy or sell calls.{" "}
           <Link href="/disclaimer" className="underline hover:text-slate-800">
-            READ FULL DISCLAIMER
+            Read the disclaimer
           </Link>
         </p>
       </div>

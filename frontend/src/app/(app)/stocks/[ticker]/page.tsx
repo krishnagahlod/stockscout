@@ -42,7 +42,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   ]);
 
   const verdicts = [
-    { heading: "The business", v: businessVerdict(stock) },
+    { heading: "The business", v: businessVerdict(stock, universe) },
     { heading: "The price", v: priceVerdict(stock, universe) },
     { heading: "Recent trend", v: trendVerdict(stock) },
   ];

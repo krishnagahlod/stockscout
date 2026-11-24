@@ -7,18 +7,18 @@ export const metadata = {
   description: "Say what you want from your money. StockScout finds Nifty 500 companies that fit, explains why in plain words, and splits your budget into whole shares.",
 };
 
-// A real run of the "Companies that pay you" idea on prices from 23 Nov 2026, kept static on this public page.
+// Static example on closing prices more than 30 days old (SEBI, May 2026: price data in learning material must lag by 30+ days).
 const EXAMPLE = {
   idea: "I have ₹5,000. I'd like steady companies that pay me something every year.",
   lines: [
-    { name: "ITC", shares: 6, amount: 1806 },
-    { name: "Castrol India", shares: 8, amount: 1523 },
-    { name: "Coal India", shares: 4, amount: 1528 },
+    { name: "ITC", shares: 6, amount: 1565 },
+    { name: "Castrol India", shares: 9, amount: 1771 },
+    { name: "Coal India", shares: 4, amount: 1647 },
   ],
-  total: 4857,
-  left: 143,
-  why: "Coal India pays out about 10.7% of its share price as cash each year, among the highest in the Nifty 500.",
-  asOf: "23 Nov 2026",
+  total: 4983,
+  left: 17,
+  why: "Coal India paid out about 10% of its share price as cash over the year before, among the highest in the Nifty 500.",
+  asOf: "19 Oct 2026",
 };
 
 const STEPS = [
@@ -79,7 +79,7 @@ export default function Landing() {
               </p>
               <div className="my-6 border-t border-dashed border-slate-300" />
               <table className="w-full text-[15px]">
-                <caption className="sr-only">Example plan for ₹5,000</caption>
+                <caption className="sr-only">Example split of ₹5,000</caption>
                 <thead>
                   <tr className="text-left text-sm text-slate-500">
                     <th className="pb-2 font-medium">Company</th><th className="pb-2 text-right font-medium">Shares</th><th className="pb-2 text-right font-medium">Amount</th>
@@ -106,7 +106,7 @@ export default function Landing() {
                 <strong className="font-semibold">Why Coal India?</strong> {EXAMPLE.why.replace("Coal India ", "It ")}
               </p>
             </div>
-            <figcaption className="mt-3 text-center text-xs text-slate-500">A real example on prices from {EXAMPLE.asOf}. Not a recommendation.</figcaption>
+            <figcaption className="mt-3 text-center text-xs text-slate-500">An example for learning, on closing prices from {EXAMPLE.asOf}. Not a recommendation.</figcaption>
           </figure>
         </section>
 
@@ -155,7 +155,7 @@ export default function Landing() {
 
         <section className="mx-auto max-w-6xl px-5 py-24 text-center md:px-8">
           <h2 className="mx-auto max-w-2xl font-display text-3xl font-bold tracking-tight sm:text-5xl">Start with ₹500 or ₹50,000.</h2>
-          <p className="mx-auto mt-4 max-w-md text-lg text-slate-600">Tell StockScout what you want, and see your plan in under a minute.</p>
+          <p className="mx-auto mt-4 max-w-md text-lg text-slate-600">Tell StockScout what you want, and see which companies fit in under a minute.</p>
           <Link href="/auth/signup" className="mt-8 inline-block rounded-2xl bg-indigo-600 px-7 py-4 text-base font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Create a free account</Link>
         </section>
       </main>

@@ -8,18 +8,40 @@ import { Button } from "@/components/ui/button";
 import type { IdeaRules, PlanLine } from "@/lib/rules";
 import { addPlanToPortfolio, deleteIdea, saveStarterIdea } from "../actions";
 
-export function BudgetForm({ budget }: { budget: number }) {
+/** Split calculator: the student picks the companies and the amount; we only do the arithmetic. */
+export function BudgetForm({ budget, options, chosen }: { budget: number; options: { ticker: string; name: string }[]; chosen: string[] }) {
   const router = useRouter();
   const path = usePathname();
   const [value, setValue] = useState(budget ? String(budget) : "");
+  const [picked, setPicked] = useState<string[]>(chosen);
+  const toggle = (t: string) => setPicked((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
+  const submit = () => {
+    const q = new URLSearchParams({ budget: String(Math.max(0, Math.round(Number(value) || 0))) });
+    if (picked.length !== options.length) q.set("only", picked.join(","));
+    router.replace(`${path}?${q}`);
+  };
   return (
-    <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); router.replace(`${path}?budget=${Math.max(0, Math.round(Number(value) || 0))}`); }}>
-      <label htmlFor="budget" className="text-sm text-slate-600">I want to invest</label>
-      <div className="flex items-center rounded-xl border border-slate-200 bg-white px-2 h-10 focus-within:ring-2 focus-within:ring-indigo-400">
-        <span className="text-slate-400">₹</span>
-        <input id="budget" type="number" min={0} step={100} value={value} onChange={(e) => setValue(e.target.value)} className="w-28 bg-transparent px-1 outline-none" placeholder="5000" />
+    <form className="mt-4 space-y-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <fieldset>
+        <legend className="text-sm text-slate-600 mb-2">Companies to include</legend>
+        <div className="flex flex-wrap gap-2">
+          {options.map((o) => (
+            <label key={o.ticker} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50">
+              <input type="checkbox" checked={picked.includes(o.ticker)} onChange={() => toggle(o.ticker)} className="accent-indigo-600" />
+              {o.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="budget" className="text-sm text-slate-600">Amount</label>
+        <div className="flex items-center rounded-xl border border-slate-200 bg-white px-2 h-10 focus-within:ring-2 focus-within:ring-indigo-400">
+          <span className="text-slate-400">₹</span>
+          <input id="budget" type="number" min={0} step={100} value={value} onChange={(e) => setValue(e.target.value)} className="w-28 bg-transparent px-1 outline-none" placeholder="5000" />
+        </div>
+        <Button type="submit" variant="secondary" size="sm" className="h-10 rounded-xl" disabled={!picked.length}>Split it</Button>
+        {!picked.length && <span className="text-sm text-slate-500">Tick at least one company.</span>}
       </div>
-      <Button type="submit" variant="secondary" size="sm" className="h-10 rounded-xl">Update plan</Button>
     </form>
   );
 }

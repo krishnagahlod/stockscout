@@ -47,3 +47,13 @@ import { summarize } from "../portfolio";
   assert.ok(s.checks.some((c) => c.title.includes("in one company")));
   console.log("portfolio check: ok");
 }
+
+// Glance cards state rank, not verdicts
+import { rankOf, standing } from "../glance";
+{
+  assert.equal(rankOf([1, 2, 3, 4], 3.5), 0.75);
+  assert.equal(standing(0.83), "top 15%");
+  assert.equal(standing(0.995), "top 5%", "never 'top 0%'");
+  assert.equal(standing(0.2), "bottom 20%");
+  console.log("glance check: ok");
+}

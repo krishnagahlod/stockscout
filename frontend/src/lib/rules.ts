@@ -118,8 +118,9 @@ export function reasonsFor(s: StockSnapshot, rules: IdeaRules, universe: StockSn
     const p = percentiles(universe, key).get(s.stock_id) ?? 0.5;
     const info = METRICS[key];
     const strength = info.better === "low" ? 1 - p : p;
-    const where = strength >= 0.8 ? "among the best" : strength >= 0.6 ? "better than most" : strength >= 0.4 ? "about average" : "weaker than most";
-    return [{ strength, text: `${info.label}: ${formatMetric(key, v)} (${where} in the Nifty 500)` }];
+    // a rank, not a judgement: "lower than 98% of the Nifty 500"
+    const share = Math.min(99, Math.max(1, Math.round(strength * 100)));
+    return [{ strength, text: `${info.label}: ${formatMetric(key, v)} (${info.better === "low" ? "lower" : "higher"} than ${share}% of the Nifty 500)` }];
   });
   return scored.sort((a, b) => b.strength - a.strength).slice(0, 3).map((x) => x.text);
 }

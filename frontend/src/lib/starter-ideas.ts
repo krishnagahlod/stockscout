@@ -6,7 +6,7 @@ export const STARTER_IDEAS: (IdeaRules & { slug: string; emoji: string; tagline:
     version: 2, slug: "steady-giants", emoji: "🏛️",
     name: "Steady big companies",
     tagline: "Large, profitable companies that don't swing wildly",
-    summary: "Big, well-known companies that make solid profits, don't borrow too much, and whose prices move calmly. A sensible first step for long-term money.",
+    summary: "Big, well-known companies that make solid profits, don't borrow too much, and whose prices move calmly.",
     filters: [
       { metric: "market_cap_cr", op: ">", value: 50000 },
       { metric: "roe", op: ">", value: 0.12 },

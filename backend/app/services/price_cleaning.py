@@ -43,10 +43,14 @@ def plan_cleaning(rows: list[tuple]) -> tuple[set, list[tuple]]:
     return bad, splits
 
 
-async def clean_prices(db) -> dict:
-    """Apply plan_cleaning to every stock's stored prices. Returns counts for the log."""
+async def clean_prices(db, days: int | None = 30) -> dict:
+    """
+    Apply plan_cleaning to stored prices. Nightly, only the last `days` are scanned (new splits only appear
+    in new data; the adjustment still reaches all earlier history). days=None scans everything.
+    """
     nan = await db.execute(text("delete from daily_prices where close = 'NaN' or close <= 0"))
-    result = await db.execute(text("select stock_id, date, close from daily_prices order by stock_id, date"))
+    window = "" if days is None else f"where date >= current_date - {int(days)}"
+    result = await db.execute(text(f"select stock_id, date, close from daily_prices {window} order by stock_id, date"))
     by_stock: dict[int, list] = {}
     for sid, d, c in result:
         by_stock.setdefault(sid, []).append((d, float(c)))

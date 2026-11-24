@@ -128,10 +128,9 @@ def compute_technical_indicators(df: pd.DataFrame, benchmark_returns: Optional[p
     else:
         features["beta"] = np.nan
 
-    # Max drawdown (trailing 1 year / 252 days)
-    rolling_max = close.rolling(252, min_periods=1).max()
-    drawdown = (close - rolling_max) / rolling_max
-    features["max_drawdown_1y"] = drawdown.rolling(252, min_periods=1).min()
+    # Max drawdown within the trailing 252 days only (peak and trough both inside the window)
+    features["max_drawdown_1y"] = close.rolling(252, min_periods=2).apply(
+        lambda w: (w / np.maximum.accumulate(w) - 1).min(), raw=True)
 
     # Trailing Sharpe ratio (252d, rf=6%)
     daily_rf = 0.06 / 252

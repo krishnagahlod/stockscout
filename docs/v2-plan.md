@@ -6,15 +6,22 @@ How StockScout becomes the place Indian students check before they invest: every
 
 ## Build status
 
-Phase 1, in the agreed order. Ticked items are live on the site.
+Phase 1, in the agreed order. Ticked items are built (24 Nov 2026).
 
-- [ ] Wording pass
-- [ ] Start here (with ETFs)
-- [ ] Tip checker
-- [ ] Stock page v2 (candle chart, compare to Nifty, worst case)
-- [ ] Practice mode
-- [ ] Market today
+- [x] Wording pass: rank facts instead of verdicts, split calculator, landing example on 19 Oct 2026 closes
+- [x] Start here (/start): three questions, Nifty 50 facts from our own data, Nifty 50 ETFs from three fund houses
+- [x] Tip checker (/check): hype phrases, companies named, red flags from real numbers, names outside the Nifty 500
+- [x] Stock page v2: TradingView Lightweight Charts (line, candles, vs Nifty 50, 50/200-day averages), worst-case line, "above its 50-day average since"
+- [x] Practice mode (/practice): ₹1,00,000 of pretend money, buy and sell at the latest close, "try this idea with practice money"
+- [x] Market today (/market): one-line summary, industry map, big movers, breadth
 - [ ] AI explainer (waiting for the Groq key)
+
+Data fixes made along the way:
+
+- Filled a hole in price history: 235 stocks were missing 23 Feb to 21 Jul 2026 (22,314 days added).
+- Nightly price repair (backend/app/services/price_cleaning.py): drops empty and bad rows, adjusts splits and bonus issues Yahoo left unadjusted. Rows changed on 24 Nov are backed up in the table `daily_prices_backup_20261124`.
+- The Nifty 500 universe no longer includes 37 custom rows created by CSV imports.
+- Added the Nifty 50 index and six ETFs to the nightly sync.
 
 ## Decisions (24 Nov 2026)
 

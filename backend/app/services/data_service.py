@@ -9,7 +9,7 @@ from typing import Optional
 import pandas as pd
 import yfinance as yf
 from loguru import logger
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -422,7 +422,8 @@ async def _run_price_sync(limit: Optional[int], start_date: Optional[str]):
     """Background task that syncs prices using its own DB session."""
     async with async_session() as db:
         try:
-            result = await db.execute(select(Stock).where(Stock.is_nifty500 == True))
+            # index members, plus the Nifty 50 index and ETFs (supabase/migrations/*_etfs_and_nifty.sql)
+            result = await db.execute(select(Stock).where(or_(Stock.is_nifty500 == True, Stock.sector.in_(["ETF", "Index"]))))
             stocks = result.scalars().all()
 
             if limit:

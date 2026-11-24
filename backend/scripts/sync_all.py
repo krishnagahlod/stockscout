@@ -20,6 +20,14 @@ async def sync_everything():
         logger.error(f"Error during price sync: {e}")
 
     async with async_session() as db:
+        try:
+            # Yahoo leaves some splits unadjusted and has occasional bad ticks; repair before indicators are computed
+            from app.services.price_cleaning import clean_prices
+            logger.info(f"Step 1b: Cleaning prices: {await clean_prices(db)}")
+        except Exception as e:
+            logger.error(f"Error during price cleaning: {e}")
+            await db.rollback()
+
         if os.getenv("SKIP_FUNDAMENTALS", "").lower() == "true":
             logger.info("Step 2: Skipping fundamentals (SKIP_FUNDAMENTALS=true; they refresh weekly).")
         else:

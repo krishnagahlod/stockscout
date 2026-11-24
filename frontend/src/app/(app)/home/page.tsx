@@ -60,13 +60,9 @@ export default async function HomePage() {
             </>
           ) : (
             <>
-              <p className="font-display text-xl font-bold text-slate-900">Start investing in 3 simple steps</p>
-              <ol className="mt-4 space-y-3 text-slate-700">
-                <li><span className="font-semibold text-indigo-600">1.</span> Tell us what you want from your money, in your own words.</li>
-                <li><span className="font-semibold text-indigo-600">2.</span> See companies that fit, why they fit, and how many shares your budget buys.</li>
-                <li><span className="font-semibold text-indigo-600">3.</span> Buy them in your broker app and record them here to keep track.</li>
-              </ol>
-              <Link href="/ideas"><Button className="mt-5 rounded-xl">Get started <ArrowRight className="h-4 w-4 ml-1" /></Button></Link>
+              <p className="font-display text-xl font-bold text-slate-900">New to investing?</p>
+              <p className="mt-3 text-slate-700 leading-relaxed">Answer three quick questions about your money and get a plain path for where to begin, with real numbers on how much things have risen and fallen.</p>
+              <Link href="/start"><Button className="mt-5 rounded-xl">Start here <ArrowRight className="h-4 w-4 ml-1" /></Button></Link>
             </>
           )}
         </Panel>

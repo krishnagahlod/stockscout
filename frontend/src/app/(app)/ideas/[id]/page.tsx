@@ -8,7 +8,7 @@ import { METRICS, formatMetric, yearChange } from "@/lib/metrics";
 import { STARTER_IDEAS } from "@/lib/starter-ideas";
 import { niceDate, rupees, shortTicker } from "@/lib/format";
 import { Change, Empty, Notice, Panel } from "@/components/kit";
-import { BoughtButton, BudgetForm, DeleteIdeaButton, SaveStarterButton } from "./idea-controls";
+import { BoughtButton, BudgetForm, DeleteIdeaButton, PracticeButton, SaveStarterButton } from "./idea-controls";
 
 export default async function IdeaPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ budget?: string; only?: string }> }) {
   const { id } = await params;
@@ -84,10 +84,11 @@ export default async function IdeaPage({ params, searchParams }: { params: Promi
                 Total {rupees(budget - plan.leftover)} · {rupees(plan.leftover)} left over
                 {plan.tooExpensive.length > 0 && <> · skipped {plan.tooExpensive.map(shortTicker).join(", ")} (one share costs more than its part of your budget)</>}
               </p>
-              <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-                <p className="text-xs text-slate-500 max-w-md">You place these orders yourself in your broker app (Zerodha, Groww, etc.). Prices are from {niceDate(asOf)} and will have moved; adjust share counts to today&apos;s price.</p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <PracticeButton lines={plan.lines} />
                 <BoughtButton lines={plan.lines} />
               </div>
+              <p className="mt-3 text-xs text-slate-500 max-w-xl">Practice money uses pretend cash at the latest close. Real orders you place yourself in your broker app (Zerodha, Groww, etc.); prices are from {niceDate(asOf)} and will have moved.</p>
             </div>
           )
         )}

@@ -3,8 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StockSnapshot } from "./metrics";
 
 export async function getUniverse(supabase: SupabaseClient): Promise<StockSnapshot[]> {
-  // ~540 rows, under PostgREST's 1000-row page
-  const { data, error } = await supabase.from("stock_snapshot").select("*").not("price", "is", null);
+  // the Nifty 500 only (~500 rows, under PostgREST's 1000-row page); ETFs, the index and CSV-imported custom rows are excluded
+  const { data, error } = await supabase.from("stock_snapshot").select("*").eq("is_index_member", true).not("price", "is", null);
   if (error) throw new Error(`Could not load market data: ${error.message}`);
   return (data ?? []) as StockSnapshot[];
 }
@@ -23,7 +23,7 @@ export async function getByTicker(supabase: SupabaseClient, ticker: string): Pro
   return (data?.[0] as StockSnapshot) ?? null;
 }
 
-export type PricePoint = { date: string; close: number; volume: number | null };
+export type PricePoint = { date: string; open: number; high: number; low: number; close: number; volume: number | null };
 
 /** Daily closes for the last `years`, newest last. Pages through PostgREST's 1000-row limit. */
 export async function getPriceHistory(supabase: SupabaseClient, stockId: number, years = 5): Promise<PricePoint[]> {
@@ -33,13 +33,13 @@ export async function getPriceHistory(supabase: SupabaseClient, stockId: number,
   for (let from = 0; from < 5000; from += 1000) {
     const { data, error } = await supabase
       .from("daily_prices")
-      .select("date, close, volume")
+      .select("date, open, high, low, close, volume")
       .eq("stock_id", stockId)
       .gte("date", since.toISOString().slice(0, 10))
       .order("date", { ascending: true })
       .range(from, from + 999);
     if (error || !data?.length) break;
-    out.push(...(data as PricePoint[]));
+    out.push(...(data as PricePoint[]).filter((p) => Number.isFinite(p.close) && p.close > 0));
     if (data.length < 1000) break;
   }
   return out;

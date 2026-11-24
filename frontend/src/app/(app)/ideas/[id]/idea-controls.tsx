@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Bookmark, Check, Loader2, Trash2 } from "lucide-react";
+import { Bookmark, Check, FlaskConical, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { IdeaRules, PlanLine } from "@/lib/rules";
 import { addPlanToPortfolio, deleteIdea, saveStarterIdea } from "../actions";
+import { practiceBuyMany } from "../../practice/actions";
 
 /** Split calculator: the student picks the companies and the amount; we only do the arithmetic. */
 export function BudgetForm({ budget, options, chosen }: { budget: number; options: { ticker: string; name: string }[]; chosen: string[] }) {
@@ -57,6 +58,23 @@ export function BoughtButton({ lines }: { lines: PlanLine[] }) {
       <Button variant="outline" className="rounded-xl" disabled={pending || !lines.length}
         onClick={() => start(async () => setResult(await addPlanToPortfolio(lines.map(({ ticker, shares, price }) => ({ ticker, shares, price })))))}>
         {pending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}I&apos;ve bought these: add to my portfolio
+      </Button>
+      {result?.error && <p className="mt-2 text-sm text-rose-600">{result.error}</p>}
+    </div>
+  );
+}
+
+export function PracticeButton({ lines }: { lines: PlanLine[] }) {
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ added?: number; error?: string } | null>(null);
+  if (result?.added) {
+    return <p className="text-sm text-emerald-700 flex items-center gap-2"><Check className="h-4 w-4" />Bought with practice money. <Link href="/practice" className="underline">See your practice portfolio</Link></p>;
+  }
+  return (
+    <div>
+      <Button className="rounded-xl" disabled={pending || !lines.length}
+        onClick={() => start(async () => setResult(await practiceBuyMany(lines.map(({ ticker, shares }) => ({ ticker, shares })))))}>
+        {pending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FlaskConical className="h-4 w-4 mr-2" />}Try it with practice money
       </Button>
       {result?.error && <p className="mt-2 text-sm text-rose-600">{result.error}</p>}
     </div>

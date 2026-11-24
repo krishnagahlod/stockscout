@@ -45,6 +45,10 @@ import { summarize } from "../portfolio";
   assert.equal(Math.round(s.dayPnl), 200, "day change from prev close");
   assert.equal(s.unpriced, 1);
   assert.ok(s.checks.some((c) => c.title.includes("in one company")));
+  const etf = { ...stock(50, "ETF", null, 100), name: "Nifty ETF" };
+  const f = summarize([{ id: 9, stock_id: 50, quantity: 10, avg_buy_price: 100 }], new Map([[50, etf]]));
+  assert.ok(!f.checks.some((c) => c.title.includes("one company") || c.title.startsWith("Only")), "a single broad ETF is not concentration");
+  assert.ok(f.checks.some((c) => c.tone === "good" && c.title.includes("ETFs")));
   console.log("portfolio check: ok");
 }
 
@@ -56,4 +60,86 @@ import { rankOf, standing } from "../glance";
   assert.equal(standing(0.995), "top 5%", "never 'top 0%'");
   assert.equal(standing(0.2), "bottom 20%");
   console.log("glance check: ok");
+}
+
+// Worst fall and recovery from daily closes
+import { grownFrom, monthsBetween, rolling, sma, trendSince, worstFall } from "../risk";
+{
+  const pts = [["2020-01-01", 100], ["2020-02-01", 120], ["2020-03-01", 60], ["2020-06-01", 90], ["2020-09-01", 125], ["2020-10-01", 110]]
+    .map(([date, close]) => ({ date: date as string, close: close as number }));
+  const f = worstFall(pts)!;
+  assert.equal(f.fall, -0.5, "120 -> 60 is the worst fall");
+  assert.equal(f.peakDate, "2020-02-01");
+  assert.equal(f.troughDate, "2020-03-01");
+  assert.equal(f.recoveredDate, "2020-09-01", "first close back at or above 120");
+  assert.equal(worstFall([pts[0], pts[1]]), null, "only rising: no fall");
+  assert.equal(grownFrom(pts, "2020-02-15", 1000)!.value, 1000 * 110 / 60);
+  assert.equal(monthsBetween("2020-02-01", "2020-09-01"), 7);
+  const yr = [["2019-01-01", 100], ["2019-07-01", 80], ["2020-01-01", 90], ["2020-07-01", 120]].map(([date, close]) => ({ date: date as string, close: close as number }));
+  const r1 = rolling(yr, 1)!;
+  assert.equal(r1.count, 2, "two full 1-year windows");
+  assert.equal(r1.lossShare, 0.5, "100->90 lost, 80->120 gained");
+  assert.equal(rolling(yr, 5), null, "no 5-year window yet");
+  const tp = [10, 10, 10, 8, 8, 12, 13].map((close, i) => ({ date: `2026-01-0${i + 1}`, close }));
+  assert.deepEqual(sma(tp, 3).slice(0, 4), [null, null, 10, 28 / 3]);
+  assert.deepEqual(trendSince(tp, 3), { above: true, since: "2026-01-06" }, "crossed above its 3-day average on the 6th");
+  console.log("risk check: ok");
+}
+
+// Tip checker
+import { findMentions, hypeWords, tipFlags } from "../tips";
+{
+  const msg = "🚀 SURE SHOT multibagger! Buy COALINDIA and Infra Corp now, TGT 600. Also XYZSME will hit upper circuit. Join our VIP group";
+  const h = hypeWords(msg);
+  for (const w of ["sure shot", "multibagger", "target", "upper circuit", "VIP or paid group", "hype emojis"]) assert.ok(h.includes(w), `hype: ${w}`);
+  assert.deepEqual(hypeWords("Coal India results were steady this quarter."), []);
+  assert.ok(hypeWords("my friend says its going to double").includes("double your money"));
+
+  const u = [
+    { ...base, stock_id: 1, ticker: "COALINDIA.NS", name: "Coal India Ltd.", sector: "Energy", market_cap_cr: 240000, roe: 0.28, price: 380 },
+    { ...base, stock_id: 2, ticker: "INFRACORP.NS", name: "Infra Corp Ltd.", sector: "Energy", market_cap_cr: 3000, roe: 0.05, price: 50, eps: -2 },
+    { ...base, stock_id: 3, ticker: "IDEA.NS", name: "Vodafone Idea Ltd.", sector: "Telecom", market_cap_cr: 50000, roe: null, price: 8, eps: 3.4, net_margin: 0.8, operating_margin: -0.05 },
+  ] as StockSnapshot[];
+  const m = findMentions(msg, u);
+  assert.deepEqual(m.found.map((s) => s.stock_id).sort(), [1, 2], "caps ticker and name core");
+  assert.deepEqual(m.unknown, ["XYZSME"], "unknown caps word, stop-words ignored");
+  assert.equal(findMentions("I have a good idea", u).found.length, 0, "lowercase 'idea' in a sentence is not a ticker");
+  assert.equal(findMentions("coal india", u).found[0].stock_id, 1, "short text is a search");
+
+  const hist = Array.from({ length: 70 }, (_, i) => ({ date: `d${i}`, close: i < 55 ? 100 : 140 }));
+  const { flags } = tipFlags(u[1], u, hist);
+  assert.ok(flags[0].level === "red", "red flags first");
+  assert.ok(flags.some((f) => f.text.includes("up 40% in the past month")), "month spike");
+  assert.ok(flags.some((f) => f.text.includes("loss")), "loss");
+  assert.ok(tipFlags(u[2], u, hist).flags.some((f) => f.text.includes("day-to-day business lost money")), "one-off profit");
+  console.log("tips check: ok");
+}
+
+// Practice mode replay
+import { PRACTICE_CASH, replay } from "../practice";
+{
+  const t = (id: number, stock_id: number, quantity: number, price: number) => ({ id, stock_id, quantity, price, traded_at: "2026-11-24T10:00:00Z" });
+  const r = replay([t(1, 7, 10, 100), t(2, 7, 10, 200), t(3, 7, -5, 300), t(4, 8, 2, 50), t(5, 8, -9, 60)]);
+  assert.equal(r.holdings.find((h) => h.stock_id === 7)!.quantity, 15);
+  assert.equal(r.holdings.find((h) => h.stock_id === 7)!.avg_buy_price, 150, "average cost survives a partial sell");
+  assert.equal(r.holdings.some((h) => h.stock_id === 8), false, "fully sold, and overselling is capped");
+  assert.equal(r.realized, 5 * (300 - 150) + 2 * (60 - 50));
+  assert.equal(r.cash, PRACTICE_CASH - 1000 - 2000 + 1500 - 100 + 120);
+  console.log("practice check: ok");
+}
+
+// Market today
+import { marketDay } from "../market-day";
+{
+  const mk = (id: number, sector: string, cap: number, price: number, prev: number) =>
+    ({ ...stock(id, sector, null, price), market_cap_cr: cap, prev_close: prev, price_date: "2026-11-23" }) as StockSnapshot;
+  const m = marketDay([mk(1, "IT", 90000, 110, 100), mk(2, "IT", 10000, 90, 100), mk(3, "Bank", 50000, 95, 100), { ...mk(4, "Bank", 1000, 50, 49), price_date: "2026-11-20" }]);
+  assert.equal(m.date, "2026-11-23");
+  assert.equal(m.count, 3, "stale prices are left out");
+  assert.equal(m.rose, 1);
+  assert.equal(m.sectors[0].name, "IT");
+  assert.ok(Math.abs(m.sectors[0].change - 0.08) < 1e-9, "size-weighted: (0.1*90k - 0.1*10k) / 100k");
+  assert.deepEqual(m.up.map((s) => s.stock_id), [1]);
+  assert.deepEqual(m.down.map((s) => s.stock_id), [3], "biggest fall first, small companies excluded");
+  console.log("market check: ok");
 }

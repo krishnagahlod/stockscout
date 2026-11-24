@@ -63,14 +63,20 @@ export function summarize(holdings: HoldingRow[], snaps: Map<number, StockSnapsh
 export function healthChecks(positions: Position[], sectors: { name: string; weight: number }[]): Check[] {
   if (!positions.length) return [];
   const checks: Check[] = [];
-  const top = positions[0];
-  if (top.weight > 0.25) {
+  // an ETF already holds many companies, so concentration checks look at single companies only
+  const isFund = (p: Position) => p.stock.sector === "ETF" || p.stock.sector === "Index";
+  const fundWeight = positions.filter(isFund).reduce((a, p) => a + p.weight, 0);
+  const top = positions.find((p) => !isFund(p));
+  if (top && top.weight > 0.25) {
     checks.push({ tone: "warn", title: `${Math.round(top.weight * 100)}% is in one company`, detail: `${top.stock.name} is a big part of your money. If it has a bad year, your whole portfolio feels it. Many people keep any one company under 20–25%.` });
   }
-  if (sectors[0] && sectors[0].weight > 0.4 && sectors.length > 0) {
-    checks.push({ tone: "warn", title: `${Math.round(sectors[0].weight * 100)}% is in ${sectors[0].name}`, detail: "Companies in the same industry often rise and fall together. Spreading across industries smooths the ride." });
+  const topSector = sectors.find((s) => s.name !== "ETF" && s.name !== "Index");
+  if (topSector && topSector.weight > 0.4) {
+    checks.push({ tone: "warn", title: `${Math.round(topSector.weight * 100)}% is in ${topSector.name}`, detail: "Companies in the same industry often rise and fall together. Spreading across industries smooths the ride." });
   }
-  if (positions.length < 5) {
+  if (fundWeight > 0) {
+    checks.push({ tone: "good", title: `${Math.round(fundWeight * 100)}% is in ETFs`, detail: "Each one already spreads your money across many companies, so one company's bad year matters less." });
+  } else if (positions.length < 5) {
     checks.push({ tone: "warn", title: `Only ${positions.length} ${positions.length === 1 ? "company" : "companies"}`, detail: "With few companies, one surprise matters a lot. 8–15 companies across different industries is a common starting point, or an index fund." });
   }
   const bigLosers = positions.filter((p) => p.pnlPct < -0.3);
@@ -81,7 +87,7 @@ export function healthChecks(positions: Position[], sectors: { name: string; wei
   if (heavyDebt.length) {
     checks.push({ tone: "warn", title: `${heavyDebt.length} ${heavyDebt.length > 1 ? "companies borrow" : "company borrows"} heavily`, detail: `${heavyDebt.slice(0, 3).map((p) => p.stock.name).join(", ")} owe more than 1.5× their own money. That can hurt when interest rates rise or business slows.` });
   }
-  if (!checks.length) {
+  if (!checks.some((c) => c.tone === "warn") && !fundWeight) {
     checks.push({ tone: "good", title: "Nicely spread out", detail: "No single company or industry dominates, and nothing is badly down. Keep adding regularly and review every few months." });
   }
   return checks;

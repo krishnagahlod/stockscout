@@ -58,7 +58,7 @@ export async function createIdea(_prev: IdeaFormState, formData: FormData): Prom
   const { supabase, user } = await requireUser();
   const [{ data: profile }, { data: sectorRows }] = await Promise.all([
     supabase.from("user_profiles").select("risk_appetite").eq("user_id", user.id).maybeSingle(),
-    supabase.from("stock_snapshot").select("sector"),
+    supabase.from("stock_snapshot").select("sector").eq("is_index_member", true),
   ]);
   const sectors = Array.from(new Set((sectorRows ?? []).map((r) => r.sector as string))).sort();
 

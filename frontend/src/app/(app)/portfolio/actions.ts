@@ -154,5 +154,5 @@ export async function deleteHolding(id: number) {
   const { error } = await supabase.from("holdings").delete().eq("id", id).eq("user_id", user.id);
   if (error) throw new Error("Failed to delete holding");
   revalidatePath("/portfolio");
-  revalidatePath("/");
+  revalidatePath("/home");
 }

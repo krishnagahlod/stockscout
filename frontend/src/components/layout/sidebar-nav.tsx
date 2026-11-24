@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Home, Lightbulb, PieChart } from "lucide-react";
 
 const navItems: { href: string; label: string; icon: typeof Home; showBadge?: boolean }[] = [
-  { href: "/", label: "Home", icon: Home },
+  { href: "/home", label: "Home", icon: Home },
   { href: "/ideas", label: "Ideas", icon: Lightbulb },
   { href: "/portfolio", label: "Portfolio", icon: PieChart },
 ];

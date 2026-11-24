@@ -28,10 +28,17 @@ export async function updateSession(request: NextRequest) {
   // Exchange ?code= from email verification links for a session
   const code = request.nextUrl.searchParams.get('code')
   if (code) {
-    await supabase.auth.exchangeCodeForSession(code)
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
     const url = request.nextUrl.clone()
     url.searchParams.delete('code')
-    return NextResponse.redirect(url)
+    if (error) {
+      url.pathname = '/auth/login'
+      url.search = '?error=' + encodeURIComponent('That link has expired or was already used. Request a new one.')
+    }
+    const redirect = NextResponse.redirect(url)
+    // carry the new session cookies onto the redirect, or the user arrives signed out
+    supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c))
+    return redirect
   }
 
   let user = null
@@ -44,11 +51,13 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname
   const isAuthRoute = path.startsWith('/auth')
-  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + '/'))
+  const isPublic = path === '/' || PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + '/'))
+  // reachable while signed in: the email link signs you in, then you set the new password
+  const signedInAuthPages = ['/auth/confirm', '/auth/reset']
 
-  if (user && isAuthRoute && !path.startsWith('/auth/confirm')) {
+  if (user && (path === '/' || (isAuthRoute && !signedInAuthPages.some((p) => path.startsWith(p))))) {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    url.pathname = '/home'
     url.search = ''
     return NextResponse.redirect(url)
   }

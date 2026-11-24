@@ -92,7 +92,7 @@ async function insertIdea(supabase: Awaited<ReturnType<typeof createClient>>, us
     .single();
   if (error || !data) throw new Error(`Could not save the idea: ${error?.message}`);
   revalidatePath("/ideas");
-  revalidatePath("/");
+  revalidatePath("/home");
   return data.id as number;
 }
 
@@ -108,7 +108,7 @@ export async function deleteIdea(id: number) {
   const { supabase } = await requireUser();
   await supabase.from("strategies").delete().eq("id", id); // RLS limits this to the owner's rows
   revalidatePath("/ideas");
-  revalidatePath("/");
+  revalidatePath("/home");
   redirect("/ideas");
 }
 
@@ -126,6 +126,6 @@ export async function addPlanToPortfolio(lines: Pick<PlanLine, "ticker" | "share
   const { error } = await supabase.from("holdings").insert(rows);
   if (error) return { error: `Could not add to portfolio: ${error.message}` };
   revalidatePath("/portfolio");
-  revalidatePath("/");
+  revalidatePath("/home");
   return { added: rows.length };
 }

@@ -55,7 +55,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <Link href="/" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"><ArrowLeft className="h-4 w-4" />Home</Link>
+      <Link href="/home" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"><ArrowLeft className="h-4 w-4" />Home</Link>
 
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>

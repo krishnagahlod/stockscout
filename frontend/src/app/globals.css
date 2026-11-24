@@ -115,3 +115,15 @@
       radial-gradient(at 0% 50%, hsla(300, 100%, 95%, 0.5) 0px, transparent 50%);
   }
 }
+/* Landing: the example plan writes itself out once on load */
+@keyframes slip-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.slip-row {
+  animation: slip-in 0.45s ease-out both;
+  animation-delay: calc(var(--i, 0) * 140ms + 250ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .slip-row { animation: none; }
+}

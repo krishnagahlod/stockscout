@@ -2,16 +2,12 @@
 //   LLM_BASE_URL  e.g. https://api.groq.com/openai/v1
 //   LLM_API_KEY
 //   LLM_MODEL     e.g. a model id your provider lists
-// Falls back to the older CEREBRAS_API_KEY setup when LLM_* are not set.
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 
 function config() {
   if (process.env.LLM_API_KEY) {
     return { baseUrl: process.env.LLM_BASE_URL || "https://api.groq.com/openai/v1", key: process.env.LLM_API_KEY, model: process.env.LLM_MODEL || "" };
-  }
-  if (process.env.CEREBRAS_API_KEY) {
-    return { baseUrl: "https://api.cerebras.ai/v1", key: process.env.CEREBRAS_API_KEY, model: process.env.LLM_MODEL || "gpt-oss-120b" };
   }
   return null;
 }

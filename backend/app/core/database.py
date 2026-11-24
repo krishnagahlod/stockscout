@@ -4,11 +4,20 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
-# Convert postgresql:// to postgresql+asyncpg:// for SQLAlchemy async support
-if settings.DATABASE_URL and settings.DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-else:
-    DATABASE_URL = settings.DATABASE_URL or f"sqlite+aiosqlite:///{settings.DB_PATH}"
+import os
+from loguru import logger
+
+def _get_database_url() -> str:
+    use_sqlite = getattr(settings, "USE_SQLITE", True) or os.getenv("USE_SQLITE", "").lower() in ("true", "1", "yes")
+    if use_sqlite or not settings.DATABASE_URL:
+        logger.info(f"Using SQLite database at {settings.DB_PATH}")
+        return f"sqlite+aiosqlite:///{settings.DB_PATH}"
+
+    if settings.DATABASE_URL.startswith("postgresql://"):
+        return settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return settings.DATABASE_URL
+
+DATABASE_URL = _get_database_url()
 
 engine = create_async_engine(
     DATABASE_URL, 

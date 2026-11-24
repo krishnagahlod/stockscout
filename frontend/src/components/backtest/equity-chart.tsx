@@ -109,7 +109,7 @@ export function EquityChart({ data }: EquityChartProps) {
                   stroke="#94a3b8"
                   fillOpacity={1}
                   fill="url(#colorBenchmark)"
-                  name="Buy & Hold Baseline"
+                  name="Average stock (equal weight)"
                   strokeWidth={2}
                   strokeDasharray="4 4"
                 />

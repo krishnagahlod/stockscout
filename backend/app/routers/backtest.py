@@ -113,5 +113,14 @@ def _bt_to_response(bt: BacktestResult, strategy: Optional[Strategy] = None) -> 
         trades=[TradeRecord(**t) for t in trades],
         monthly_returns=[MonthlyReturn(**m) for m in monthly],
         holdings=[HoldingSnapshot(**h) for h in holdings],
+        warnings=_stored_warnings(bt),
         created_at=bt.run_date,
     )
+
+
+def _stored_warnings(bt: BacktestResult) -> list[str]:
+    params = bt.parameters_json if isinstance(bt.parameters_json, dict) else (json.loads(bt.parameters_json) if bt.parameters_json else {})
+    if "warnings" not in params:
+        return ["This result was made with an older version of the tester that used today's company numbers for past dates "
+                "and compared against its own picks. Run it again for a fair result."]
+    return params["warnings"]

@@ -132,14 +132,62 @@ async def sync_universe_from_csv(db: AsyncSession) -> int:
 
 # --- Price fetching ---
 def fetch_prices_yfinance(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """Fetch OHLCV for a single ticker via yfinance. Runs synchronously."""
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(start=start, end=end, auto_adjust=False)
+    """Fetch OHLCV for a single ticker via yfinance with direct Yahoo API fallback."""
+    df = pd.DataFrame()
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(start=start, end=end, auto_adjust=False)
+    except Exception as e:
+        logger.warning(f"yfinance history failed for {symbol}: {e}")
+
+    # Fallback to direct Yahoo Finance chart API if yfinance returned empty
+    if df.empty:
+        try:
+            import urllib.request
+            import json
+            from datetime import datetime as dt
+            
+            p1 = int(dt.strptime(start, "%Y-%m-%d").timestamp())
+            p2 = int(dt.strptime(end, "%Y-%m-%d").timestamp())
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}&interval=1d"
+            req = urllib.request.Request(
+                url, 
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("chart", {}).get("result"):
+                    res = data["chart"]["result"][0]
+                    timestamps = res.get("timestamp", [])
+                    if timestamps and "indicators" in res:
+                        quotes = res["indicators"]["quote"][0]
+                        adjclose = res["indicators"].get("adjclose", [{}])[0].get("adjclose", quotes.get("close", []))
+                        rows = []
+                        for i, ts in enumerate(timestamps):
+                            c = quotes.get("close", [])[i] if i < len(quotes.get("close", [])) else None
+                            if c is None:
+                                continue
+                            rows.append({
+                                "date": dt.fromtimestamp(ts).strftime("%Y-%m-%d"),
+                                "open": quotes.get("open", [])[i] or c,
+                                "high": quotes.get("high", [])[i] or c,
+                                "low": quotes.get("low", [])[i] or c,
+                                "close": c,
+                                "adj_close": (adjclose[i] if i < len(adjclose) and adjclose[i] is not None else c),
+                                "volume": quotes.get("volume", [])[i] or 0,
+                                "stock_splits": 0,
+                                "dividends": 0,
+                            })
+                        if rows:
+                            df = pd.DataFrame(rows)
+        except Exception as ex:
+            logger.warning(f"Direct Yahoo chart API fetch failed for {symbol}: {ex}")
 
     if df.empty:
         return pd.DataFrame()
 
-    df = df.reset_index()
+    if "date" not in df.columns:
+        df = df.reset_index()
     df.columns = [c.lower().replace(" ", "_") for c in df.columns]
 
     # Ensure expected columns exist
@@ -178,7 +226,7 @@ async def sync_prices_for_stock(
         return 0
 
     try:
-        df = fetch_prices_yfinance(stock.symbol, start_date, end_date)
+        df = await asyncio.to_thread(fetch_prices_yfinance, stock.symbol, start_date, end_date)
     except Exception as e:
         logger.error(f"Failed to fetch prices for {stock.symbol}: {e}")
         return 0
@@ -192,6 +240,9 @@ async def sync_prices_for_stock(
         price_date = row["date"]
         if isinstance(price_date, pd.Timestamp):
             price_date = price_date.date()
+        elif isinstance(price_date, str):
+            from datetime import datetime as dt
+            price_date = dt.strptime(price_date[:10], "%Y-%m-%d").date()
 
         existing = await db.execute(
             select(DailyPrice).where(
@@ -281,13 +332,13 @@ async def bulk_sync_historical_prices(db: AsyncSession, stocks: list[Stock], sta
         try:
             # Auto-adjust is False to match old behavior. group_by='ticker' to get MultiIndex columns.
             logger.info(f"Downloading chunk {i//chunk_size + 1} ({len(chunk)} symbols)...")
-            df = yf.download(chunk, start=start_date, group_by="ticker", auto_adjust=False, threads=True)
+            df = await asyncio.to_thread(yf.download, chunk, start=start_date, group_by="ticker", auto_adjust=False, threads=True)
             if not df.empty:
                 # If only 1 symbol was passed in this chunk, yf returns single index columns.
                 if len(chunk) == 1:
                     df.columns = pd.MultiIndex.from_product([[chunk[0]], df.columns])
                 all_dfs.append(df)
-            time.sleep(1) # Small delay to respect rate limits
+            await asyncio.sleep(1) # Small delay to respect rate limits
         except Exception as e:
             logger.error(f"Failed bulk download for chunk {i}: {e}")
 

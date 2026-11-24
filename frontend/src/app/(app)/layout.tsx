@@ -10,22 +10,23 @@ export default async function AppLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/auth/login");
-  }
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("onboarding_completed")
+        .eq("user_id", user.id)
+        .single();
 
-  // Check if profile exists and onboarding is complete
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("onboarding_completed")
-    .eq("user_id", user.id)
-    .single();
-
-  if (!profile || !profile.onboarding_completed) {
-    redirect("/onboarding");
+      if (profile && profile.onboarding_completed === false) {
+        redirect("/onboarding");
+      }
+    }
+  } catch {
+    // Supabase auth offline or unpausing - allow browsing
   }
 
   return (

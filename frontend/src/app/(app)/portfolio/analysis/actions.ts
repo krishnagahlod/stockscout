@@ -4,8 +4,8 @@ import { createClient } from "@/utils/supabase/server";
 
 export async function fetchPortfolioSnapshot() {
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  const userId = session?.user?.id;
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
 
   if (!userId) {
     return { success: false, error: "Unauthorized" };
@@ -13,13 +13,14 @@ export async function fetchPortfolioSnapshot() {
 
   try {
     const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-    const apiKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+    const apiKey = process.env.FASTAPI_SECRET || "";
     
-    const response = await fetch(`${backendUrl}/api/portfolio/snapshot?user_id=${userId}`, {
+    const response = await fetch(`${backendUrl}/api/portfolio/snapshot`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": apiKey
+        "X-API-Key": apiKey,
+        "X-User-Id": userId
       },
     });
 
@@ -39,7 +40,7 @@ export async function fetchPortfolioSnapshot() {
 export async function generatePortfolioReport(snapshot: any) {
   try {
     const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-    const apiKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+    const apiKey = process.env.FASTAPI_SECRET || "";
     
     const response = await fetch(`${backendUrl}/api/portfolio/report`, {
       method: "POST",
@@ -68,8 +69,8 @@ export async function sendPortfolioChatMessage(
   snapshot_summary?: any
 ) {
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  const userId = session?.user?.id;
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
 
   if (!userId) {
     return { success: false, error: "Unauthorized" };
@@ -77,13 +78,14 @@ export async function sendPortfolioChatMessage(
 
   try {
     const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-    const apiKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+    const apiKey = process.env.FASTAPI_SECRET || "";
     
     const response = await fetch(`${backendUrl}/api/portfolio/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": apiKey
+        "X-API-Key": apiKey,
+        "X-User-Id": userId
       },
       body: JSON.stringify({
         messages,

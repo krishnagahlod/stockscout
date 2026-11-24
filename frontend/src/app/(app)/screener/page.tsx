@@ -18,14 +18,15 @@ export default async function ScreenerPage() {
 
   // Fetch top 10 scores from backend
   const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const secretKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+  const secretKey = process.env.FASTAPI_SECRET || "";
   let scores: any[] = [];
   try {
-    const res = await fetch(`${backendUrl}/compute/scores/top?user_id=${user.id}`, { 
+    const res = await fetch(`${backendUrl}/compute/scores/top`, { 
       cache: 'no-store',
       headers: {
         "Authorization": `Bearer ${secretKey}`,
-        "X-API-Key": secretKey
+        "X-API-Key": secretKey,
+        "X-User-Id": user.id
       }
     });
     if (res.ok) {

@@ -3,7 +3,7 @@ from sqlalchemy import (
     Column, Integer, Float, Text, Boolean, Date, DateTime, ForeignKey, Index, UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.database import Base
@@ -23,6 +23,11 @@ class Stock(Base):
     is_nifty500 = Column("is_index_member", Boolean, default=True)
     last_updated = Column("last_refreshed", DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Synonyms for column aliases
+    ticker = synonym("symbol")
+    is_index_member = synonym("is_nifty500")
+    last_refreshed = synonym("last_updated")
 
     prices = relationship("DailyPrice", back_populates="stock")
     fundamentals = relationship("Fundamental", back_populates="stock")

@@ -7,11 +7,12 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import async_session
 from app.models.db_models import SchedulerLog
 
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone="UTC")  # cron hours below are UTC
 
 
 async def _log_job(job_name: str, status: str, message: str = ""):
@@ -176,7 +177,6 @@ def setup_scheduler():
         hours=4,
         id="job_sync_news",
         replace_existing=True,
-        next_run_time=datetime.utcnow() + timedelta(minutes=6),
     )
 
     scheduler.add_job(
@@ -202,6 +202,9 @@ def setup_scheduler():
 
 def start_scheduler():
     """Start the scheduler."""
+    if not settings.SCHEDULER_ENABLED:
+        logger.info("Scheduler disabled (SCHEDULER_ENABLED=false)")
+        return
     setup_scheduler()
     scheduler.start()
     logger.info("Scheduler started")

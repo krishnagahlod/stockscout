@@ -92,6 +92,15 @@ export default function BacktestDetailPage({
         </div>
       </div>
 
+      {result.warnings && result.warnings.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm space-y-1">
+          <p className="font-semibold text-amber-700 dark:text-amber-400">Read this before trusting the numbers</p>
+          <ul className="list-disc pl-5 space-y-1 text-amber-900 dark:text-amber-200">
+            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
+
       <MetricsCards
         metrics={result.metrics}
         initialCapital={result.initial_capital}

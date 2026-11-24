@@ -48,49 +48,6 @@ MARKET REGIME CONTEXT:
 """
 
 
-def get_strategy_finalize_system(macro_summary: str) -> str:
-    """Dynamic finalize system prompt injected with real-time market context."""
-    return f"""You are an expert investment strategist for Indian equities.
-
-Convert the conversation into a structured JSON strategy. Based on the discussion and current live market context, produce a valid JSON object:
-Live Context: {macro_summary}
-
-{{
-  "name": "Strategy Name",
-  "universe": "nifty500",
-  "filters": [
-    {{"metric": "market_cap", "op": ">", "value": 500}}
-  ],
-  "ranking": {{
-    "weights": [
-      {{"metric": "trailing_pe", "weight": 0.6}},
-      {{"metric": "momentum_12m", "weight": 0.4}}
-    ]
-  }},
-  "selection": {{"top_n": 20}},
-  "rebalance": {{"frequency": "quarterly"}},
-  "position_sizing": "equal",
-  "trailing_stop_atr_multiple": 2.0,
-  "stop_loss_pct": 0.10,
-  "take_profit_pct": 0.25,
-  "strategy_type": "long_only",
-  "hedge_ratio": 0.0,
-  "warnings": []
-}}
-
-{AVAILABLE_METRICS}
-
-Rules:
-- Use only the metrics listed above
-- "position_sizing" can be "equal", "inverse_volatility", or "risk_parity"
-- "strategy_type" can be "long_only", "long_short", or "market_neutral"
-- Include sensible risk parameters (`trailing_stop_atr_multiple`, `stop_loss_pct`, `take_profit_pct`) tailored to the conversation
-- Convert percentages to decimals (3% → 0.03)
-- Market cap in crores
-- FACTOR ORTHOGONALITY: Do not combine highly correlated metrics (e.g., Trailing PE and EV/EBITDA). Select orthogonal factors (e.g., Value + Quality + Momentum) to diversify risk.
-- Return ONLY the JSON object, nothing else"""
-
-
 STRATEGY_PARSE_SYSTEM = f"""You are an expert investment strategist for Indian equities.
 
 Your job is to convert a plain-English investment strategy description into structured JSON rules
@@ -261,28 +218,6 @@ Rules:
 - Convert percentages to decimals (3% → 0.03)
 - Market cap in crores
 - Return ONLY the JSON object, nothing else"""
-
-
-EXPLAIN_STOCK_SYSTEM = """You are an equity research analyst covering Indian stocks.
-Explain why a specific stock was selected by an investment strategy's screening criteria.
-Be specific with numbers and metrics."""
-
-EXPLAIN_STOCK_USER = """Stock: {symbol} ({name})
-Sector: {sector}
-
-Strategy filters applied:
-{filter_summary}
-
-Stock's metric values:
-{metric_summary}
-
-Explain why this stock was selected. Cover:
-1. Reasons for selection (which filters it passed and why those values are good)
-2. Key strengths
-3. Potential concerns
-4. Overall assessment
-
-Return as JSON with fields: symbol, reasons (string array), strengths (string array), concerns (string array), overall (string)"""
 
 
 # --- Goal prompts for the goal-based onboarding ---

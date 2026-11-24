@@ -402,8 +402,12 @@ async def get_news_analysis(ticker: str, db: AsyncSession = Depends(get_db)):
     decoded_ticker = ticker.upper()
     
     # 1. Get stock ID
-    stock_res = await db.execute(select(Stock).where(Stock.ticker == decoded_ticker))
+    stock_res = await db.execute(select(Stock).where(Stock.symbol == decoded_ticker))
     stock = stock_res.scalar_one_or_none()
+    if not stock and not decoded_ticker.endswith(".NS"):
+        stock_res = await db.execute(select(Stock).where(Stock.symbol == f"{decoded_ticker}.NS"))
+        stock = stock_res.scalar_one_or_none()
+
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
 

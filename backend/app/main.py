@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, Request, HTTPException, BackgroundTasks
+import uuid
+from fastapi import FastAPI, Depends, Request, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 from app.services.scheduler_service import start_scheduler
 from app.core.database import async_session, get_db
+from app.core.auth import current_user_id, admin_for_writes
 from app.services.data_service import get_stock_count, sync_universe_from_csv
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,13 +48,14 @@ async def lifespan(app: FastAPI):
                     if (now - last_time) < timedelta(hours=12):
                         should_sync = False
                 
-                if should_sync:
-                    logger.info("Data is stale (>12 hours or no sync log). Triggering background full sync...")
+                auto_sync = os.getenv("AUTO_SYNC_ON_STARTUP", "false").lower() == "true"
+                if should_sync and auto_sync:
+                    logger.info("Data is stale (>12 hours or no sync log) and AUTO_SYNC_ON_STARTUP is enabled. Triggering background full sync...")
                     import asyncio
                     from scripts.sync_all import sync_everything
                     asyncio.create_task(sync_everything())
                 else:
-                    logger.info("Data is fresh. Skipping startup background sync.")
+                    logger.info("Skipping startup background sync (AUTO_SYNC_ON_STARTUP disabled or data is fresh).")
     except Exception as e:
         logger.error(f"Failed initial database seed or startup check: {e}")
     yield
@@ -77,13 +80,15 @@ async def log_requests(request: Request, call_next):
     return response
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], 
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "dev_shared_secret_key")
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "")
+if not API_SECRET_KEY or API_SECRET_KEY == "dev_shared_secret_key":
+    raise RuntimeError("Set a random API_SECRET_KEY in backend/.env (and the same value as FASTAPI_SECRET in frontend/.env.local)")
 
 @app.middleware("http")
 async def verify_api_key(request: Request, call_next):
@@ -96,13 +101,7 @@ async def verify_api_key(request: Request, call_next):
         
     return await call_next(request)
 
-def verify_token(req: Request):
-    token = req.headers.get("Authorization")
-    if not token or token != f"Bearer {os.environ.get('API_SECRET_KEY', 'dev_shared_secret_key')}":
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return token
 
-from app.api.sync import router as sync_router
 from app.routers.llm import router as llm_router
 from app.routers.backtest import router as backtest_router
 from app.routers.strategies import router as strategies_router
@@ -115,7 +114,6 @@ from app.routers.alerts import router as alerts_router
 from app.routers.scheduler import router as scheduler_router
 from app.routers.features import router as features_router
 
-app.include_router(sync_router, prefix="/api", tags=["sync"])
 app.include_router(llm_router, prefix="/api", tags=["LLM"])
 app.include_router(backtest_router, prefix="/api", tags=["Backtest"])
 app.include_router(strategies_router, prefix="/api", tags=["Strategies"])
@@ -123,9 +121,10 @@ app.include_router(portfolio_router, prefix="/api", tags=["Portfolio"])
 
 app.include_router(health_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
-app.include_router(data_router, prefix="/api")
+app.include_router(data_router, prefix="/api", dependencies=[Depends(admin_for_writes)])
 app.include_router(alerts_router, prefix="/api", tags=["alerts"])
-app.include_router(scheduler_router, prefix="/api")
+app.include_router(scheduler_router, prefix="/api", dependencies=[Depends(admin_for_writes)])
+app.include_router(features_router, prefix="/api", dependencies=[Depends(admin_for_writes)])
 from app.routers.screener import router as screener_router
 from app.routers.stocks import router as stocks_router
 from app.routers.playbook import router as playbook_router
@@ -138,33 +137,29 @@ app.include_router(playbook_router, prefix="/api", tags=["Playbook"])
 app.include_router(monitor_router, prefix="/api", tags=["Monitor"])
 app.include_router(rebalance_router, prefix="/api", tags=["Rebalance & Attribution"])
 app.include_router(brokers_router, prefix="/api/brokers", tags=["Brokers"])
-@app.post("/compute/score", dependencies=[Depends(verify_token)])
-
-
-async def compute_scores(user_id: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    background_tasks.add_task(generate_scores, db, user_id)
+@app.post("/compute/score")
+async def compute_scores(background_tasks: BackgroundTasks, user_id: uuid.UUID = Depends(current_user_id)):
+    async def run():
+        # the request's session is closed once the response is sent, so open a fresh one
+        async with async_session() as db:
+            await generate_scores(db, user_id)
+    background_tasks.add_task(run)
     return {"status": "processing", "message": "Scoring initiated in the background."}
 
 @app.get("/compute/score")
-async def get_single_score(user_id: str, stock_id: int):
-    # Dummy score for check stock page
-    import random
-    score = random.randint(60, 95)
-    return {
-        "id": stock_id,
-        "fundamentals_score": score - random.randint(0, 10),
-        "sector_score": score - random.randint(0, 10),
-        "news_score": score - random.randint(0, 10),
-        "combined_score": score,
-        "risk_band": random.choice(["conservative", "moderate", "aggressive"]),
-        "score_breakdown": {"valuation": "Good", "growth": "Average"}
-    }
+async def get_single_score(stock_id: int, db: AsyncSession = Depends(get_db)):
+    from app.services.scoring_service import score_stock
+    score = await score_stock(db, stock_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="No fundamentals available for this stock yet")
+    return score
 
 @app.get("/compute/scores/top")
-async def get_top_scores(user_id: str = "default_user", db: AsyncSession = Depends(get_db)):
+async def get_top_scores(user_id: uuid.UUID = Depends(current_user_id), db: AsyncSession = Depends(get_db)):
     import os, json
-    
-    file_path = f"data/{user_id}_picks.json"
+    from app.core.config import DATA_DIR
+
+    file_path = DATA_DIR / "picks" / f"{user_id}_picks.json"
     
     if not os.path.exists(file_path):
         from app.services.scoring_service import generate_scores

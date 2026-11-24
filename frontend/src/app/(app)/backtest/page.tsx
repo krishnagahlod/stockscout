@@ -37,7 +37,7 @@ export default function BacktestPage() {
 
   const [strategyId, setStrategyId] = useState<number | "">("");
   const [startDate, setStartDate] = useState("2020-01-01");
-  const [endDate, setEndDate] = useState("2026-07-22");
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [capital, setCapital] = useState(1000000);
   const [frequency, setFrequency] = useState("quarterly");
   const [txCost, setTxCost] = useState(20);

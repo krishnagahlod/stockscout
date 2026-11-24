@@ -110,7 +110,7 @@ class StrategyOut(BaseModel):
     description: Optional[str] = None
     user_prompt: Optional[str] = None
     rules_json: Any
-    strategy_type: str = "rule_based"
+    strategy_type: Optional[str] = "rule_based"
     position_sizing: Optional[str] = "equal"
     universe: Optional[str] = "nifty500"
     status: Optional[str] = "draft"

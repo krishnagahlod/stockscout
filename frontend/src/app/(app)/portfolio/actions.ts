@@ -132,7 +132,7 @@ export async function importHoldings(holdings: { assetIdentifier: string; quanti
   }
 
   const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const apiKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+  const apiKey = process.env.FASTAPI_SECRET || "";
 
   // Create custom stocks for unmatched holdings
   if (unmatchedHoldings.length > 0) {

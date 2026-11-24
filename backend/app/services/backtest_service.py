@@ -7,6 +7,7 @@ select stocks at each rebalance date, with transaction costs and slippage.
 import json
 import math
 import operator
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -47,6 +48,13 @@ REBALANCE_FREQ = {
     "annual": 252,         # ~1 year
 }
 
+# Company-report metrics (market_cap is handled separately from price history)
+FUNDAMENTAL_METRICS = {
+    "trailing_pe", "price_to_book", "ev_to_ebitda", "dividend_yield",
+    "roe", "roa", "debt_to_equity", "gross_margin", "operating_margin",
+    "net_margin", "eps", "revenue",
+}
+
 
 class PortfolioBacktester:
     """Simulate a rebalanced portfolio from strategy rules."""
@@ -74,6 +82,10 @@ class PortfolioBacktester:
         self.fundamentals: dict[str, dict] = {}     # symbol -> fundamental values
         self.stock_map: dict[str, dict] = {}        # symbol -> {id, name, sector, market_cap}
         self.trading_dates: pd.DatetimeIndex = pd.DatetimeIndex([])
+        self.universe_returns: pd.Series = pd.Series(dtype=float)  # equal-weight average daily return
+        self.warnings: list[str] = []
+        self.empty_rebalances = 0
+        self.index_memberships: dict = defaultdict(list)
 
     async def load_data(self, db: AsyncSession):
         """Load all needed price and fundamental data from DB."""
@@ -86,6 +98,8 @@ class PortfolioBacktester:
         if getattr(self.rules, 'strategy_type', None) == 'custom':
             custom_symbols = [s.symbol for s in getattr(self.rules, 'stocks', [])]
             result = await db.execute(select(Stock).where(Stock.symbol.in_(custom_symbols)))
+        elif self.rules.universe == "nifty500":
+            result = await db.execute(select(Stock).where(Stock.is_nifty500 == True))
         else:
             result = await db.execute(select(Stock))
         stocks = result.scalars().all()
@@ -113,57 +127,64 @@ class PortfolioBacktester:
                     "removed_date": pd.Timestamp(ic.removed_date) if ic.removed_date else pd.Timestamp.max
                 })
 
-        # Bulk load prices with lookback (optimised column fetch)
-        price_result = await db.execute(
-            select(
-                DailyPrice.stock_id,
-                DailyPrice.date,
-                DailyPrice.open,
-                DailyPrice.high,
-                DailyPrice.low,
-                DailyPrice.close,
-                DailyPrice.volume,
-            )
-            .where(
-                and_(
-                    DailyPrice.stock_id.in_(stock_ids),
-                    DailyPrice.date >= lookback_start,
-                    DailyPrice.date <= self.end_date,
-                )
-            )
-            .order_by(DailyPrice.date.asc())
-        )
-        price_rows = price_result.all()
-        
-        # Group prices by stock_id
-        prices_by_stock = {}
-        for r in price_rows:
-            sid, d_date, d_open, d_high, d_low, d_close, d_vol = r
-            if sid not in prices_by_stock:
-                prices_by_stock[sid] = []
-            prices_by_stock[sid].append({
-                "date": d_date,
-                "open": d_open,
-                "high": d_high,
-                "low": d_low,
-                "close": d_close,
-                "volume": d_vol,
-            })
-            
-        import asyncio
-        
-        def _build_dataframes(stocks, prices_by_stock):
-            prices_dict = {}
-            import pandas as pd
-            for stock in stocks:
-                if stock.id in prices_by_stock:
-                    df = pd.DataFrame(prices_by_stock[stock.id])
-                    df["date"] = pd.to_datetime(df["date"])
-                    df = df.set_index("date").sort_index()
-                    prices_dict[stock.symbol] = df
-            return prices_dict
+        # In-memory memoized price cache for sub-second backtesting
+        cache_key = f"backtest_prices_{lookback_start}_{self.end_date}_{len(stock_ids)}"
+        from app.core.cache import cache
+        cached_prices = cache.get(cache_key)
 
-        self.prices = await asyncio.to_thread(_build_dataframes, stocks, prices_by_stock)
+        if cached_prices:
+            self.prices = cached_prices
+        else:
+            # Bulk load prices with lookback (optimised column fetch)
+            price_result = await db.execute(
+                select(
+                    DailyPrice.stock_id,
+                    DailyPrice.date,
+                    DailyPrice.open,
+                    DailyPrice.high,
+                    DailyPrice.low,
+                    DailyPrice.close,
+                    DailyPrice.volume,
+                )
+                .where(
+                    and_(
+                        DailyPrice.stock_id.in_(stock_ids),
+                        DailyPrice.date >= lookback_start,
+                        DailyPrice.date <= self.end_date,
+                    )
+                )
+                .order_by(DailyPrice.date.asc())
+            )
+            price_rows = price_result.all()
+            
+            # Group prices by stock_id
+            prices_by_stock = {}
+            for r in price_rows:
+                sid, d_date, d_open, d_high, d_low, d_close, d_vol = r
+                if sid not in prices_by_stock:
+                    prices_by_stock[sid] = []
+                prices_by_stock[sid].append({
+                    "date": d_date,
+                    "open": d_open,
+                    "high": d_high,
+                    "low": d_low,
+                    "close": d_close,
+                    "volume": d_vol,
+                })
+                
+            def _build_dataframes(stocks, prices_by_stock):
+                prices_dict = {}
+                for stock in stocks:
+                    if stock.id in prices_by_stock:
+                        df = pd.DataFrame(prices_by_stock[stock.id])
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.set_index("date").sort_index()
+                        prices_dict[stock.symbol] = df
+                return prices_dict
+
+            self.prices = await asyncio.to_thread(_build_dataframes, stocks, prices_by_stock)
+            # Cache for 1 hour
+            cache.set(cache_key, self.prices, ttl=3600)
 
         # Bulk load historical fundamentals
         fund_result = await db.execute(
@@ -214,6 +235,11 @@ class PortfolioBacktester:
             all_dates.update(df.index)
         if all_dates:
             self.trading_dates = pd.DatetimeIndex(sorted(all_dates))
+            closes = pd.DataFrame({s: df["close"] for s, df in self.prices.items()})
+            # clip absurd daily moves (bad ticks / splits) so one stock can't swing the average
+            self.universe_returns = closes.pct_change(fill_method=None).clip(-0.5, 1.0).mean(axis=1).fillna(0.0)
+
+        self._add_data_warnings()
 
         logger.info(
             f"Loaded data: {len(self.prices)} stocks with prices, "
@@ -221,12 +247,30 @@ class PortfolioBacktester:
             f"{len(self.trading_dates)} trading days"
         )
 
-    def _get_metric_at_date(self, symbol: str, metric: str, as_of: pd.Timestamp) -> Optional[float]:
-        """Get a metric value for a stock at a given date.
+    def _add_data_warnings(self) -> None:
+        """Plain-language caveats about what this backtest can and cannot know."""
+        if getattr(self.rules, "strategy_type", None) == "custom":
+            return
+        used = {f.metric for f in self.rules.filters}
+        if self.rules.ranking and getattr(self.rules.ranking, "weights", None):
+            used |= {w.metric if hasattr(w, "metric") else w["metric"] for w in self.rules.ranking.weights}
+        if used & FUNDAMENTAL_METRICS:
+            first = min((df.index.min() for df in self.fundamentals.values() if not df.empty), default=None)
+            if first is None or first.date() > self.start_date:
+                since = first.strftime("%d %b %Y") if first is not None else "no date yet"
+                self.warnings.append(
+                    f"This strategy uses company numbers (like P/E or ROE). We only have those from {since}, "
+                    "so before that date no stock could be checked against them and the strategy held cash. "
+                    "Results before that date do not show how the strategy would have done."
+                )
+        if not self.index_memberships:
+            self.warnings.append(
+                "Tested only on companies in today's Nifty 500. Companies that dropped out or shut down in the past "
+                "are missing, which makes past results look somewhat better than reality."
+            )
 
-        Technical metrics are computed from price history up to as_of.
-        Fundamental metrics use stored values (acknowledged limitation).
-        """
+    def _get_metric_at_date(self, symbol: str, metric: str, as_of: pd.Timestamp) -> Optional[float]:
+        """Get a metric value for a stock using only data known on as_of (no look-ahead)."""
         df = self.prices.get(symbol)
         if df is None:
             return None
@@ -239,25 +283,23 @@ class PortfolioBacktester:
         prices_up_to = df.iloc[:idx]
         close = prices_up_to["close"]
 
-        # Stock-level
+        # Market cap then = today's market cap scaled by the price move (ignores share-count changes)
         if metric == "market_cap":
-            return self.stock_map.get(symbol, {}).get("market_cap")
+            mcap_now = self.stock_map.get(symbol, {}).get("market_cap")
+            last_close = df["close"].iloc[-1]
+            if not mcap_now or not last_close:
+                return None
+            return float(mcap_now * close.iloc[-1] / last_close)
 
-        # Fundamental metrics (Point-in-Time)
-        fund_metrics = {
-            "trailing_pe", "price_to_book", "ev_to_ebitda", "dividend_yield",
-            "roe", "roa", "debt_to_equity", "gross_margin", "operating_margin",
-            "net_margin", "eps", "revenue", "market_cap",
-        }
-        if metric in fund_metrics:
+        # Fundamental metrics: only a snapshot published on or before as_of may be used
+        if metric in FUNDAMENTAL_METRICS:
             fund_df = self.fundamentals.get(symbol)
             if fund_df is None or fund_df.empty:
                 return None
             f_idx = fund_df.index.searchsorted(as_of, side='right')
             if f_idx == 0:
-                val = fund_df.iloc[0].get(metric)
-            else:
-                val = fund_df.iloc[f_idx - 1].get(metric)
+                return None
+            val = fund_df.iloc[f_idx - 1].get(metric)
             return float(val) if not pd.isna(val) else None
 
         # Technical metrics (computed from price data up to as_of)
@@ -285,7 +327,14 @@ class PortfolioBacktester:
             returns = close.pct_change().dropna().iloc[-window:]
             return float(returns.std() * np.sqrt(252))
         if metric == "beta":
-            return 1.0  # Default market beta to 1.0 for filter evaluation
+            # 1-year beta against the equal-weight universe average
+            if n < 253 or self.universe_returns.empty:
+                return None
+            rets = close.pct_change().iloc[-252:]
+            mkt = self.universe_returns.reindex(rets.index)
+            pair = pd.concat([rets, mkt], axis=1).dropna()
+            var = pair.iloc[:, 1].var()
+            return float(pair.iloc[:, 0].cov(pair.iloc[:, 1]) / var) if var > 0 else None
         if metric == "max_drawdown_1y":
             if n < 252:
                 return None
@@ -415,16 +464,10 @@ class PortfolioBacktester:
             if passes:
                 candidates.append((symbol, metric_vals))
 
-        # Soft fallback if filters were too restrictive or data was missing
-        if not candidates and self.prices:
-            top_n_target = self.rules.selection.top_n if self.rules.selection else 20
-            sorted_symbols = sorted(
-                self.prices.keys(),
-                key=lambda s: self.stock_map.get(s, {}).get("market_cap") or 0,
-                reverse=True
-            )
-            for sym in sorted_symbols[:top_n_target]:
-                candidates.append((sym, {}))
+        # Nothing qualifies: hold cash rather than silently buying something the strategy didn't pick
+        if not candidates:
+            self.empty_rebalances += 1
+            return {}
 
         # Rank if configured
         if self.rules.ranking and candidates:
@@ -660,9 +703,9 @@ class PortfolioBacktester:
         trades = []
         total_taxes_paid = 0.0
 
-        # Buy & Hold Baseline State
-        bh_cash = self.initial_capital
-        bh_positions = {}
+        # Benchmark: equal-weight average stock in the universe, starting from initial capital
+        bench_growth = (1 + self.universe_returns.reindex(sim_dates).fillna(0.0).iloc[1:]).cumprod()
+        bench_values = pd.concat([pd.Series([1.0], index=sim_dates[:1]), bench_growth]) * self.initial_capital
         bh_equity_curve = []
 
         for day_idx, current_date in enumerate(sim_dates):
@@ -726,20 +769,6 @@ class PortfolioBacktester:
                 else:
                     execution_date = current_date
                 
-                # If day 1, initialize Buy & Hold baseline
-                if day_idx == 0:
-                    total_valid_weight = sum(target_weights.values())
-                    for sym, weight in target_weights.items():
-                        price = self._get_open_price(sym, execution_date)
-                        if price and total_valid_weight > 0:
-                            adj_weight = weight / total_valid_weight
-                            target_value = self.initial_capital * adj_weight
-                            buy_shares = int(target_value / (price * (1 + self.tx_cost_pct + self.slippage_pct + 0.001)))
-                            if buy_shares > 0:
-                                buy_cost = buy_shares * price * (1 + self.tx_cost_pct + self.slippage_pct + 0.001)
-                                bh_cash -= buy_cost
-                                bh_positions[sym] = buy_shares
-
                 max_adv = getattr(self.rules, "max_adv_pct", 0.10)
                 cash, positions, tax_paid_reb, day_trades = self._rebalance(
                     execution_date, cash, positions, target_weights, max_adv
@@ -747,12 +776,7 @@ class PortfolioBacktester:
                 total_taxes_paid += tax_paid_reb
                 trades.extend(day_trades)
 
-            # Calculate Buy & Hold baseline value first for hedge PnL calculation
-            bh_val = bh_cash
-            for sym, shares in bh_positions.items():
-                price = self._get_close_price(sym, current_date)
-                if price is not None:
-                    bh_val += shares * price
+            bh_val = float(bench_values.loc[current_date])
             
             # Apply hedge PnL if strategy is long_short or market_neutral
             hedge_ratio = getattr(self.rules, "hedge_ratio", 0.0)
@@ -841,7 +865,14 @@ class PortfolioBacktester:
                     "pnl_pct": round(pnl_pct, 6),
                 })
 
+        if self.empty_rebalances:
+            self.warnings.append(
+                f"On {self.empty_rebalances} of {len(rebalance_dates)} review dates no stock matched the rules, "
+                "so the money stayed in cash for that period."
+            )
+
         return {
+            "warnings": self.warnings,
             "initial_capital": self.initial_capital,
             "total_taxes_paid": round(total_taxes_paid, 2),
             "final_value": round(eq_series.iloc[-1], 2),
@@ -1064,6 +1095,7 @@ class PortfolioBacktester:
 
     def _empty_result(self) -> dict:
         return {
+            "warnings": self.warnings + ["Not enough price history in this date range to run a test."],
             "initial_capital": self.initial_capital,
             "total_taxes_paid": 0.0,
             "final_value": self.initial_capital,
@@ -1178,7 +1210,8 @@ async def run_backtest(request: BacktestRequest, db: AsyncSession) -> BacktestRe
         holdings_json=raw["holdings"],
         parameters_json={
             "rebalance_frequency": request.rebalance_frequency,
-            "benchmark": request.benchmark_symbol,
+            "benchmark": "equal_weight_universe",
+            "warnings": raw.get("warnings", []),
         },
     )
     db.add(bt_result)
@@ -1203,5 +1236,6 @@ async def run_backtest(request: BacktestRequest, db: AsyncSession) -> BacktestRe
         trades=[TradeRecord(**t) for t in raw["trades"]],
         monthly_returns=[MonthlyReturn(**m) for m in raw["monthly_returns"]],
         holdings=[HoldingSnapshot(**h) for h in raw["holdings"]],
+        warnings=raw.get("warnings", []),
         created_at=bt_result.run_date,
     )

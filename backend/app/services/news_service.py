@@ -16,8 +16,7 @@ analyzer = SentimentIntensityAnalyzer()
 async def sync_news_for_stock(db: AsyncSession, stock: Stock) -> int:
     """Fetch news for a stock from yfinance, score it, and upsert."""
     try:
-        ticker = yf.Ticker(stock.symbol)
-        news = ticker.news
+        news = await asyncio.to_thread(lambda: yf.Ticker(stock.symbol).news)
         if not news:
             return 0
     except Exception as e:

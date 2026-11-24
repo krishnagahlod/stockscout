@@ -362,6 +362,7 @@ export interface BacktestResponse {
   trades: TradeRecord[];
   monthly_returns: MonthlyReturn[];
   holdings: HoldingSnapshot[];
+  warnings?: string[];
   created_at: string | null;
 }
 
@@ -645,7 +646,7 @@ export async function getUnreadCount(): Promise<{ unread_count: number }> {
 
 
 export async function markAllAlertsRead(): Promise<void> {
-  await api.put("/alerts", { action: "mark_all_read" });
+  await api.put("/alerts/mark-all-read", {});
 }
 
 export async function deleteAlert(id: number): Promise<void> {

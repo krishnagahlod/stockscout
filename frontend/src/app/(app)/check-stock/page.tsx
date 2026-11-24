@@ -26,7 +26,7 @@ export default async function CheckStockPage({
   let stockData = null;
 
   const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const secretKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+  const secretKey = process.env.FASTAPI_SECRET || "";
 
   if (ticker) {
     // Check if stock exists via backend
@@ -35,7 +35,8 @@ export default async function CheckStockPage({
         cache: 'no-store',
         headers: {
           "Authorization": `Bearer ${secretKey}`,
-          "X-API-Key": secretKey
+          "X-API-Key": secretKey,
+          "X-User-Id": user.id
         }
       });
       if (res.ok) {
@@ -50,24 +51,25 @@ export default async function CheckStockPage({
           };
 
           // Also get the score from backend
-          const scoreRes = await fetch(`${backendUrl}/compute/score?user_id=${user.id}&stock_id=${item.id}`, { 
+          const scoreRes = await fetch(`${backendUrl}/compute/score?stock_id=${item.id}`, { 
             cache: 'no-store',
             headers: {
               "Authorization": `Bearer ${secretKey}`,
-              "X-API-Key": secretKey
+              "X-API-Key": secretKey,
+          "X-User-Id": user.id
             }
           });
           if (scoreRes.ok) {
              const scoreData = await scoreRes.json();
              if (scoreData && scoreData.combined_score !== undefined) {
                scoreResult = {
-                  id: scoreData.id || 1,
-                  computed_at: new Date().toISOString(),
-                  fundamentals_score: scoreData.fundamentals_score || 50,
-                  sector_score: scoreData.sector_score || 50,
-                  news_score: scoreData.news_score || 50,
-                  combined_score: scoreData.combined_score || 50,
-                  risk_band: scoreData.risk_band || "moderate",
+                  id: scoreData.id,
+                  computed_at: scoreData.computed_at,
+                  fundamentals_score: scoreData.fundamentals_score,
+                  sector_score: scoreData.sector_score,
+                  news_score: scoreData.news_score,
+                  combined_score: scoreData.combined_score,
+                  risk_band: scoreData.risk_band,
                   score_breakdown: scoreData.score_breakdown || {},
                   stocks: stockData
                };
@@ -141,29 +143,29 @@ export default async function CheckStockPage({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                <Card>
                  <CardHeader className="pb-3">
-                   <CardTitle className="text-sm">Fundamentals Fit</CardTitle>
+                   <CardTitle className="text-sm">Durability</CardTitle>
                  </CardHeader>
                  <CardContent>
                    <p className="text-2xl font-bold text-blue-500">{scoreResult.fundamentals_score}/100</p>
-                   <p className="text-xs text-muted-foreground mt-2">{scoreResult.score_breakdown?.fundamentals_note}</p>
+                   <p className="text-xs text-muted-foreground mt-2">How strong the business is: profits, returns and debt.</p>
                  </CardContent>
                </Card>
                <Card>
                  <CardHeader className="pb-3">
-                   <CardTitle className="text-sm">Sector Exposure Fit</CardTitle>
+                   <CardTitle className="text-sm">Valuation</CardTitle>
                  </CardHeader>
                  <CardContent>
                    <p className="text-2xl font-bold text-purple-500">{scoreResult.sector_score}/100</p>
-                   <p className="text-xs text-muted-foreground mt-2">{scoreResult.score_breakdown?.sector_note}</p>
+                   <p className="text-xs text-muted-foreground mt-2">Higher means the price looks cheaper compared with what the company earns.</p>
                  </CardContent>
                </Card>
                <Card>
                  <CardHeader className="pb-3">
-                   <CardTitle className="text-sm">News Sentiment Fit</CardTitle>
+                   <CardTitle className="text-sm">Momentum</CardTitle>
                  </CardHeader>
                  <CardContent>
                    <p className="text-2xl font-bold text-orange-500">{scoreResult.news_score}/100</p>
-                   <p className="text-xs text-muted-foreground mt-2">{scoreResult.score_breakdown?.news_note}</p>
+                   <p className="text-xs text-muted-foreground mt-2">Where the price sits in its 52-week range, a sign of recent strength.</p>
                  </CardContent>
                </Card>
             </div>

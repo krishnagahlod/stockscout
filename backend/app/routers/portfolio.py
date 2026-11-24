@@ -1,3 +1,4 @@
+import uuid
 """Portfolio optimization and regime detection API router."""
 
 from typing import Optional
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.auth import current_user_id
 from app.services.portfolio_service import optimize_portfolio
 from app.services.regime_service import regime_detector
 from app.services.llm_service import llm_service
@@ -19,7 +21,7 @@ class ChatMessage(BaseModel):
 
 class PortfolioChatRequest(BaseModel):
     messages: List[ChatMessage]
-    user_id: str
+    user_id: Optional[str] = None
 
 class CustomStocksRequest(BaseModel):
     names: List[str]
@@ -38,49 +40,32 @@ async def update_csv_prices(
     request: CsvPriceUpdateRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Insert or update the current price for stocks imported from CSV."""
+    """Seed a price for imported stocks that have no market data at all.
+
+    Prices are shared by every user and every backtest, so a CSV price never overwrites real data.
+    """
     from datetime import datetime
+    from sqlalchemy import select
     from app.models.db_models import DailyPrice
-    from sqlalchemy.dialects.postgresql import insert
 
-    today = datetime.utcnow().date()
-    
     if not request.prices:
-        return {"success": True}
+        return {"success": True, "count": 0}
 
-    values = []
-    for item in request.prices:
-        values.append({
-            "stock_id": item.stock_id,
-            "date": today,
-            "open": item.price,
-            "high": item.price,
-            "low": item.price,
-            "close": item.price,
-            "volume": 0
-        })
-
-    # Upsert the prices for today
-    stmt = insert(DailyPrice).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=['stock_id', 'date'],
-        set_={
-            'open': stmt.excluded.open,
-            'high': stmt.excluded.high,
-            'low': stmt.excluded.low,
-            'close': stmt.excluded.close,
-        }
-    )
-    
+    ids = [p.stock_id for p in request.prices]
+    priced = set((await db.execute(select(DailyPrice.stock_id).where(DailyPrice.stock_id.in_(ids)).distinct())).scalars())
+    today = datetime.utcnow().date()
+    new_rows = [
+        DailyPrice(stock_id=p.stock_id, date=today, open=p.price, high=p.price, low=p.price, close=p.price, volume=0)
+        for p in request.prices if p.stock_id not in priced and p.price > 0
+    ]
     try:
-        await db.execute(stmt)
+        db.add_all(new_rows)
         await db.commit()
     except Exception as e:
         await db.rollback()
-        import logging
-        logging.getLogger(__name__).error(f"Failed to update CSV prices: {e}")
-        
-    return {"success": True, "count": len(request.prices)}
+        raise HTTPException(status_code=500, detail=f"Failed to seed CSV prices: {e}")
+
+    return {"success": True, "count": len(new_rows)}
 
 @router.post("/add-custom-stocks")
 async def add_custom_stocks(
@@ -164,7 +149,7 @@ async def get_regime(db: AsyncSession = Depends(get_db)):
 
 @router.get("/snapshot")
 async def get_portfolio_snapshot(
-    user_id: str,
+    user_id: uuid.UUID = Depends(current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a comprehensive snapshot of the user's portfolio including fundamentals, technicals, and regime."""
@@ -400,14 +385,16 @@ class ChatMessage(BaseModel):
 
 class PortfolioChatRequest(BaseModel):
     messages: List[ChatMessage]
-    user_id: str
+    user_id: Optional[str] = None
     snapshot_summary: Optional[dict] = None
 
 @router.post("/chat")
 async def portfolio_chat(
     request: PortfolioChatRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(current_user_id),
 ):
+    request.user_id = user_id
     """Chat with the LLM about the user's portfolio."""
     import json
     
@@ -455,13 +442,13 @@ CRITICAL RULES:
 
 
 class PortfolioRebalanceRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     sizing_method: str = "risk_parity"
     capital_mode: str = "existing"  # "existing" or "fresh"
     additional_capital: float = 0.0
 
 class PortfolioNotifyRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     email: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     capital_mode: str = "existing"
@@ -469,7 +456,7 @@ class PortfolioNotifyRequest(BaseModel):
 
 @router.get("/playbook")
 async def get_portfolio_playbook(
-    user_id: str = Query(...),
+    user_id: uuid.UUID = Depends(current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Retrieve dynamic 14-day ATR trailing stops, hard capital defense floors, and AI quant guidance for portfolio holdings."""
@@ -484,7 +471,7 @@ async def get_portfolio_playbook(
 
 @router.get("/drift")
 async def get_portfolio_drift(
-    user_id: str = Query(...),
+    user_id: uuid.UUID = Depends(current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Evaluate real-time portfolio concentration, hard capital floor defense, ATR stops, and macro regime headwinds."""
@@ -500,8 +487,10 @@ async def get_portfolio_drift(
 @router.post("/rebalance-sheet")
 async def generate_portfolio_rebalance_sheet(
     request: PortfolioRebalanceRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(current_user_id),
 ):
+    request.user_id = user_id
     """Generate institutional trade execution schedules with 'Deploy Fresh Capital' vs 'Rebalance Existing NAV' modeling."""
     from app.services.portfolio_intelligence_service import portfolio_intelligence
     try:
@@ -521,8 +510,10 @@ async def generate_portfolio_rebalance_sheet(
 @router.post("/notify-rebalance")
 async def notify_portfolio_rebalance(
     request: PortfolioNotifyRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(current_user_id),
 ):
+    request.user_id = user_id
     """Dispatch actionable trade orders and stop-loss evaluation sheets to Resend Email & Telegram."""
     from app.services.portfolio_intelligence_service import portfolio_intelligence
     try:

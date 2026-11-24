@@ -49,7 +49,29 @@ async def fetch_screener_fundamentals(ticker: str):
                     except ValueError:
                         pass
                         
-            return ratios
+            if ratios:
+                return ratios
     except Exception as e:
-        logger.error(f"Error scraping {ticker}: {e}")
-        return None
+        logger.warning(f"Error scraping {ticker} from Screener: {e}. Falling back to MarketDataProvider.")
+
+    # Graceful fallback to data_provider so callers always receive ratios
+    try:
+        from app.services.data_provider import data_provider
+        from app.core.database import async_session
+        async with async_session() as db:
+            profile = await data_provider.get_stock_profile(db, ticker)
+            funds = profile.get("fundamentals", {})
+            if funds:
+                return {
+                    "market_cap": funds.get("market_cap"),
+                    "stock_p/e": funds.get("pe"),
+                    "book_value": funds.get("pb"),
+                    "dividend_yield": funds.get("dividend_yield"),
+                    "roce": funds.get("roce"),
+                    "roe": funds.get("roe"),
+                    "debt_to_equity": funds.get("debt_to_equity"),
+                }
+    except Exception as fallback_err:
+        logger.error(f"Fallback to data_provider for {ticker} failed: {fallback_err}")
+
+    return None

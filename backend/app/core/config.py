@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # Database
+    USE_SQLITE: bool = True
     DB_PATH: str = str(DATA_DIR / "stock_ai.db")
     DATABASE_URL: str = ""
     SUPABASE_URL: str = ""
@@ -22,14 +23,18 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: str = ""
     DEFAULT_ALERT_EMAIL: str = ""
 
-    # Cerebras LLM
+    # Tapetide MCP & Free LLMs
+    TAPETIDE_TOKEN: str = os.getenv("TAPETIDE_TOKEN", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
+    # Cerebras LLM
     CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
     CEREBRAS_MODEL: str = "gpt-oss-120b"
 
-    # yfinance
+    # yfinance / Direct Yahoo API
     PRICE_SYNC_START_DATE: str = "2015-01-01"
-    YFINANCE_RATE_LIMIT_SECONDS: float = 0.5
+    YFINANCE_RATE_LIMIT_SECONDS: float = 0.2
 
     # Backtest defaults
     DEFAULT_TX_COST_BPS: float = 20.0

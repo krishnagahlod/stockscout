@@ -27,8 +27,19 @@ class StockOut(BaseModel):
 
 
 class StockDetail(StockOut):
+    ticker: Optional[str] = None
+    exchange: Optional[str] = "NSE"
+    is_index_member: Optional[bool] = True
+    index_name: Optional[str] = "NIFTY 500"
     last_updated: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    fundamentals: Optional[dict] = None
+    prices: Optional[list[dict]] = None
+    news: Optional[list[dict]] = None
+    financial_statements: Optional[dict] = None
+    shareholding: Optional[list[dict]] = None
+    peers: Optional[list[dict]] = None
+    dvm_score: Optional[dict] = None
 
 
 class PriceOut(BaseModel):

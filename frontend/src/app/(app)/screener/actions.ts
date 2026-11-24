@@ -12,14 +12,15 @@ export async function generateScoresAction() {
   }
 
   const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const secretKey = process.env.FASTAPI_SECRET || "dev_shared_secret_key";
+  const secretKey = process.env.FASTAPI_SECRET || "";
 
   try {
-    const res = await fetch(`${backendUrl}/compute/score?user_id=${user.id}`, {
+    const res = await fetch(`${backendUrl}/compute/score`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${secretKey}`,
-        "X-API-Key": secretKey
+        "X-API-Key": secretKey,
+        "X-User-Id": user.id
       }
     });
 

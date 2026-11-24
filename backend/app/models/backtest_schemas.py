@@ -88,4 +88,5 @@ class BacktestResponse(BaseModel):
     trades: list[TradeRecord]
     monthly_returns: list[MonthlyReturn]
     holdings: list[HoldingSnapshot]
+    warnings: list[str] = []
     created_at: Optional[datetime] = None

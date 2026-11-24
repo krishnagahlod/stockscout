@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.db_models import Stock, DailyPrice
+from app.models.db_models import Stock, DailyPrice, Fundamental, NewsItem
 from app.models.schemas import StockOut, StockDetail, PriceOut, PaginatedResponse
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
@@ -100,7 +100,124 @@ async def get_stock(symbol: str, db: AsyncSession = Depends(get_db)):
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {symbol} not found")
 
-    return StockDetail.model_validate(stock)
+    # Fetch latest fundamentals
+    fund_res = await db.execute(
+        select(Fundamental)
+        .where(Fundamental.stock_id == stock.id)
+        .order_by(Fundamental.as_of_date.desc())
+        .limit(1)
+    )
+    fund = fund_res.scalar_one_or_none()
+    fund_dict = None
+    if fund:
+        fund_dict = {
+            "id": fund.id,
+            "stock_id": fund.stock_id,
+            "as_of_date": str(fund.as_of_date) if fund.as_of_date else None,
+            "market_cap": fund.market_cap or (stock.market_cap_cr if stock.market_cap_cr else None),
+            "pe": fund.pe,
+            "pb": fund.pb,
+            "roe": fund.roe,
+            "roce": fund.roce,
+            "debt_to_equity": fund.debt_to_equity,
+            "dividend_yield": fund.dividend_yield,
+            "eps": fund.eps,
+            "ebitda": fund.ebitda,
+            "revenue": fund.revenue,
+            "net_income": fund.net_income,
+        }
+
+    # Fetch last 90 prices
+    price_res = await db.execute(
+        select(DailyPrice)
+        .where(DailyPrice.stock_id == stock.id)
+        .order_by(DailyPrice.date.desc())
+        .limit(90)
+    )
+    prices_raw = price_res.scalars().all()
+    price_list = [
+        {
+            "date": str(p.date),
+            "open": p.open,
+            "high": p.high,
+            "low": p.low,
+            "close": p.close,
+            "adj_close": p.adj_close,
+            "volume": p.volume,
+        }
+        for p in prices_raw
+    ]
+    price_list.reverse()
+
+    # Fetch latest news
+    news_res = await db.execute(
+        select(NewsItem)
+        .where(NewsItem.stock_id == stock.id)
+        .order_by(NewsItem.published_at.desc())
+        .limit(5)
+    )
+    news_items = news_res.scalars().all()
+    news_list = [
+        {
+            "id": n.id,
+            "title": n.title,
+            "summary": n.summary,
+            "source": n.source,
+            "url": n.url,
+            "sentiment_score": n.sentiment_score,
+            "published_at": str(n.published_at) if n.published_at else None,
+        }
+        for n in news_items
+    ]
+
+    from app.services.data_provider import data_provider
+    from app.services.scoring_service import (
+        calculate_durability_score,
+        calculate_valuation_score,
+        calculate_momentum_score,
+        calculate_piotroski_f_score,
+    )
+
+    profile = await data_provider.get_stock_profile(db, stock.symbol)
+
+    # Compute DVM Scorecard
+    fund_for_score = {**(fund_dict or {}), "price": prices_raw[0].close if prices_raw else None}
+    durability = calculate_durability_score(fund_for_score)
+    valuation = calculate_valuation_score(fund_for_score)
+    momentum = calculate_momentum_score(fund_for_score)
+    piotroski = calculate_piotroski_f_score(fund_for_score)
+    composite = int((durability * 0.4) + (valuation * 0.35) + (momentum * 0.25))
+
+    dvm_score = {
+        "overall": composite,
+        "durability": durability,
+        "valuation": valuation,
+        "momentum": momentum,
+        "piotroski_f": piotroski,
+    }
+
+    return StockDetail(
+        id=stock.id,
+        symbol=stock.symbol,
+        name=stock.name,
+        sector=stock.sector,
+        industry=stock.industry,
+        market_cap_cr=stock.market_cap_cr,
+        is_nifty500=stock.is_nifty500,
+        ticker=stock.symbol,
+        exchange="NSE",
+        is_index_member=stock.is_nifty500,
+        index_name="NIFTY 500",
+        last_updated=stock.last_updated,
+        created_at=stock.created_at,
+        fundamentals=fund_dict,
+        prices=price_list,
+        news=news_list,
+        financial_statements=profile.get("financial_statements"),
+        shareholding=profile.get("shareholding"),
+        peers=profile.get("peers"),
+        dvm_score=dvm_score,
+    )
 
 
 @router.get("/{symbol}/prices", response_model=list[PriceOut])
@@ -134,32 +251,3 @@ async def get_stock_prices(
     prices = result.scalars().all()
 
     return [PriceOut.model_validate(p) for p in prices]
-
-@router.get("/search-all")
-async def search_all_stocks(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(20, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-):
-    """Search across ALL stocks in the database (not just Nifty 500).
-    Returns results with a flag indicating whether we have historical data."""
-    search_term = f"%{q}%"
-    query = (
-        select(Stock)
-        .where((Stock.symbol.ilike(search_term)) | (Stock.name.ilike(search_term)))
-        .limit(limit)
-    )
-    result = await db.execute(query)
-    stocks = result.scalars().all()
-    
-    output = []
-    for s in stocks:
-        output.append({
-            "symbol": s.symbol,
-            "name": s.name,
-            "sector": s.sector,
-            "market_cap_cr": s.market_cap_cr,
-            "is_nifty500": s.is_nifty500,
-            "has_price_data": s.is_nifty500,  # We only synced data for Nifty 500
-        })
-    return output

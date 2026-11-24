@@ -31,3 +31,9 @@ data/*.sqlite
 # OS
 .DS_Store
 Thumbs.db
+
+# runtime data
+data/*.db-shm
+data/*.db-wal
+data/picks/
+backend/data/*_picks.json

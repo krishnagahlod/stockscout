@@ -57,7 +57,7 @@ export function MetricsCards({ metrics, initialCapital, finalValue }: MetricsCar
     { label: "Calmar Ratio", value: fmt(metrics.calmar_ratio), tooltip: "Measures the return compared to the maximum drawdown risk." },
     { label: "Volatility", value: fmt(metrics.volatility, "pct"), tooltip: "How wildly the portfolio's value swings up and down. Lower is generally safer." },
     { label: "Alpha", value: fmt(metrics.alpha, "pct"), color: (metrics.alpha ?? 0) >= 0, tooltip: "How much better the strategy performed compared to the overall market benchmark. Positive is good." },
-    { label: "Buy & Hold CAGR", value: fmt(metrics.benchmark_cagr, "pct"), tooltip: "The average yearly growth if you had just bought the Day 1 strategy portfolio and held it without rebalancing." },
+    { label: "Average Stock CAGR", value: fmt(metrics.benchmark_cagr, "pct"), tooltip: "The average yearly growth of simply owning every stock in the universe in equal amounts. Beating this means the rules added value." },
     { label: "Total Trades", value: String(metrics.total_trades), tooltip: "The total number of buy and sell transactions executed." },
   ];
 

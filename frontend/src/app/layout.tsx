@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "StockScout | AI Stock Research",
+  title: "StockScout | Invest with clarity",
   description: "AI-Powered Stock Research & Screening Platform for NSE/BSE",
 };
 

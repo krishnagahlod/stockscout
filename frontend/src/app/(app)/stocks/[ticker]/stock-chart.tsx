@@ -19,7 +19,7 @@ interface PriceData {
   open?: number;
   high?: number;
   low?: number;
-  volume?: number;
+  volume?: number | null;
 }
 
 export function StockChart({ data }: { data: PriceData[] }) {
@@ -31,7 +31,8 @@ export function StockChart({ data }: { data: PriceData[] }) {
 
     const daysMap = { "1M": 30, "3M": 90, "6M": 180, "1Y": 365 };
     const days = daysMap[timeframe] || 90;
-    const cutoff = new Date();
+    // count back from the latest price we have, not today (data can lag)
+    const cutoff = new Date(data[data.length - 1].date);
     cutoff.setDate(cutoff.getDate() - days);
 
     const filtered = data.filter((d) => new Date(d.date) >= cutoff);

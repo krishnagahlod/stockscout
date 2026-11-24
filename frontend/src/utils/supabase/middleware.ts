@@ -1,23 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function updateSession(request: NextRequest) {
-  const isApi = request.nextUrl.pathname.startsWith('/api/')
-  const requestHeaders = new Headers(request.headers)
-  // Never trust identity headers coming from the browser; set them below from the verified session.
-  requestHeaders.delete('X-User-Id')
-  if (isApi) {
-    if (!process.env.FASTAPI_SECRET) {
-      return NextResponse.json({ detail: 'FASTAPI_SECRET is not configured' }, { status: 500 })
-    }
-    requestHeaders.set('X-API-Key', process.env.FASTAPI_SECRET)
-  }
+const PUBLIC_PATHS = ['/auth', '/disclaimer']
 
-  let supabaseResponse = NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    }
-  })
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,14 +15,8 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value)
-            requestHeaders.set('cookie', request.cookies.toString())
-          })
-          // Keep the API key / user headers when the session cookie is refreshed.
-          supabaseResponse = NextResponse.next({
-            request: { headers: requestHeaders },
-          })
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -44,15 +25,10 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with cross-browser cookies.
-  
-  // Intercept ?code= parameter from email verifications and exchange it
+  // Exchange ?code= from email verification links for a session
   const code = request.nextUrl.searchParams.get('code')
   if (code) {
     await supabase.auth.exchangeCodeForSession(code)
-    // Strip the code from the URL and redirect back to the same path
     const url = request.nextUrl.clone()
     url.searchParams.delete('code')
     return NextResponse.redirect(url)
@@ -60,26 +36,21 @@ export async function updateSession(request: NextRequest) {
 
   let user = null
   try {
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser()
-    user = authUser
+    const { data } = await supabase.auth.getUser()
+    user = data.user
   } catch {
     user = null
   }
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
-  const isPublic = isAuthRoute || request.nextUrl.pathname === '/disclaimer'
+  const path = request.nextUrl.pathname
+  const isAuthRoute = path.startsWith('/auth')
+  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + '/'))
 
-  // If user is logged in and tries to access auth routes, redirect to dashboard
-  if (user && isAuthRoute) {
+  if (user && isAuthRoute && !path.startsWith('/auth/confirm')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/' // Dashboard
+    url.pathname = '/'
+    url.search = ''
     return NextResponse.redirect(url)
-  }
-
-  if (!user && isApi) {
-    return NextResponse.json({ detail: 'Not signed in' }, { status: 401 })
   }
 
   if (!user && !isPublic) {
@@ -87,13 +58,6 @@ export async function updateSession(request: NextRequest) {
     url.pathname = '/auth/login'
     url.search = ''
     return NextResponse.redirect(url)
-  }
-
-  if (user) {
-    requestHeaders.set('X-User-Id', user.id)
-    const next = NextResponse.next({ request: { headers: requestHeaders } })
-    supabaseResponse.cookies.getAll().forEach((c) => next.cookies.set(c))
-    return next
   }
 
   return supabaseResponse

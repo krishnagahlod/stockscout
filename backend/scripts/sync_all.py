@@ -20,12 +20,15 @@ async def sync_everything():
         logger.error(f"Error during price sync: {e}")
 
     async with async_session() as db:
-        try:
-            logger.info("Step 2: Syncing all fundamentals...")
-            fund_count = await sync_all_fundamentals(db)
-            logger.info(f"Successfully synced fundamentals for {fund_count} stocks.")
-        except Exception as e:
-            logger.error(f"Error during fundamental sync: {e}")
+        if os.getenv("SKIP_FUNDAMENTALS", "").lower() == "true":
+            logger.info("Step 2: Skipping fundamentals (SKIP_FUNDAMENTALS=true; they refresh weekly).")
+        else:
+            try:
+                logger.info("Step 2: Syncing all fundamentals...")
+                fund_count = await sync_all_fundamentals(db)
+                logger.info(f"Successfully synced fundamentals for {fund_count} stocks.")
+            except Exception as e:
+                logger.error(f"Error during fundamental sync: {e}")
             
         try:
             logger.info("Step 3: Recomputing technical features...")
@@ -49,6 +52,13 @@ async def sync_everything():
             logger.info("Successfully evaluated alerts.")
         except Exception as e:
             logger.error(f"Error during alert evaluation: {e}")
+
+        if db.bind.dialect.name == "postgresql":
+            # the web app reads this one-row-per-stock view (supabase/migrations/*_stock_snapshot.sql)
+            from sqlalchemy import text
+            await db.execute(text("refresh materialized view concurrently public.stock_snapshot"))
+            await db.commit()
+            logger.info("Step 6: Refreshed stock_snapshot.")
 
     logger.info("Full synchronization complete! All data is now up-to-date.")
 

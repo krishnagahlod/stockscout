@@ -14,13 +14,13 @@ import {
 } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { useDebounce } from "use-debounce";
-import { getStocks, Stock } from "@/lib/api";
+import { searchStocks as findStocks, type StockHit } from "@/lib/search";
 
 export function GlobalSearch() {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [debouncedQuery] = useDebounce(query, 300);
-  const [results, setResults] = React.useState<Stock[]>([]);
+  const [results, setResults] = React.useState<StockHit[]>([]);
   const [loading, setLoading] = React.useState(false);
   const router = useRouter();
 
@@ -43,8 +43,7 @@ export function GlobalSearch() {
       }
       setLoading(true);
       try {
-        const response = await getStocks({ search: debouncedQuery, page_size: 5 });
-        setResults(response.items || []);
+        setResults(await findStocks(debouncedQuery, 6));
       } catch (err) {
         console.error(err);
         setResults([]);
@@ -56,11 +55,14 @@ export function GlobalSearch() {
 
   const handleSelect = (symbol: string) => {
     setOpen(false);
-    router.push(`/stocks/${symbol}`);
+    router.push(`/stocks/${symbol.replace(/.(NS|BO)$/, "")}`);
   };
 
   return (
     <>
+      <button type="button" aria-label="Search stocks" className="md:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100" onClick={() => setOpen(true)}>
+        <Search className="h-5 w-5" />
+      </button>
       <div 
         className="relative w-full max-w-sm hidden md:flex items-center cursor-text"
         onClick={() => setOpen(true)}
@@ -68,7 +70,7 @@ export function GlobalSearch() {
         <Search className="absolute left-2.5 h-4 w-4 text-muted-foreground" />
         <Input
           type="search"
-          placeholder="Search stocks (Press ⌘K)"
+          placeholder="Search any company (Ctrl+K)"
           className="w-full bg-background pl-8 pointer-events-none"
           readOnly
         />
@@ -91,7 +93,7 @@ export function GlobalSearch() {
                 onSelect={() => handleSelect(stock.symbol)}
               >
                 <div className="flex flex-col">
-                  <span className="font-semibold">{stock.symbol}</span>
+                  <span className="font-semibold">{stock.symbol.replace(/.(NS|BO)$/, "")}</span>
                   <span className="text-xs text-muted-foreground">{stock.name}</span>
                 </div>
                 {stock.sector && (

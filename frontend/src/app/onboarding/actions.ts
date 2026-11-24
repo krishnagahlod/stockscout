@@ -23,7 +23,7 @@ export async function completeOnboarding(formData: FormData) {
       risk_appetite: riskAppetite,
       onboarding_completed: true,
       updated_at: new Date().toISOString()
-    })
+    }, { onConflict: 'user_id' })
 
   if (error) {
     console.error('Failed to complete onboarding:', error)

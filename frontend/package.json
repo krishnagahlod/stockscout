@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:rules": "tsc src/lib/__tests__/rules.check.ts --outDir .rules-check --module commonjs --target es2022 --esModuleInterop --skipLibCheck && node .rules-check/__tests__/rules.check.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.14",

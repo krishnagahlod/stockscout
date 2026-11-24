@@ -83,8 +83,6 @@ export async function importHoldings(holdings: { assetIdentifier: string; quanti
   const currentDate = new Date().toISOString().split('T')[0];
   const unmatchedHoldings = [];
   
-  // Track prices to insert into daily_prices
-  const priceUpdates: { stock_id: number; price: number }[] = [];
 
   for (const h of holdings) {
     let stockId = undefined;
@@ -123,77 +121,13 @@ export async function importHoldings(holdings: { assetIdentifier: string; quanti
         avg_buy_price: h.avgBuyPrice,
         acquired_date: currentDate
       });
-      if (h.currentPrice) {
-        priceUpdates.push({ stock_id: stockId, price: h.currentPrice });
-      }
     } else {
       unmatchedHoldings.push(h);
     }
   }
 
-  const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const apiKey = process.env.FASTAPI_SECRET || "";
-
-  // Create custom stocks for unmatched holdings
-  if (unmatchedHoldings.length > 0) {
-    try {
-      const names = unmatchedHoldings.map(h => h.assetIdentifier.trim());
-      
-      const res = await fetch(`${backendUrl}/api/portfolio/add-custom-stocks`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey
-        },
-        body: JSON.stringify({ names }),
-      });
-      
-      if (res.ok) {
-        const { stocks: customStocks } = await res.json();
-        for (const h of unmatchedHoldings) {
-          const stockId = customStocks[h.assetIdentifier.trim()];
-          if (stockId) {
-            recordsToInsert.push({
-              user_id: user.id,
-              stock_id: stockId,
-              quantity: h.quantity,
-              avg_buy_price: h.avgBuyPrice,
-              acquired_date: currentDate
-            });
-            if (h.currentPrice) {
-              priceUpdates.push({ stock_id: stockId, price: h.currentPrice });
-            }
-          }
-        }
-      } else {
-        console.error("Failed to create custom stocks:", await res.text());
-      }
-    } catch (e) {
-      console.error("Error communicating with backend to create custom stocks:", e);
-    }
-  }
-
   if (recordsToInsert.length === 0) {
-    return { success: false, message: "Could not match any of the imported stocks to our database." };
-  }
-
-  // Send prices to backend to update daily_prices
-  if (priceUpdates.length > 0) {
-    try {
-      const res = await fetch(`${backendUrl}/api/portfolio/update-csv-prices`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "X-API-Key": apiKey
-        },
-        body: JSON.stringify({ prices: priceUpdates }),
-      });
-      if (!res.ok) {
-        console.error("Failed to update CSV prices:", await res.text());
-      }
-    } catch (e) {
-      console.error("Error communicating with backend to update CSV prices:", e);
-    }
+    return { success: false, message: "None of the rows matched a Nifty 500 company we track, so nothing was changed." };
   }
 
   // Delete existing holdings for this user before importing (to keep it a clean sync)
@@ -209,5 +143,16 @@ export async function importHoldings(holdings: { assetIdentifier: string; quanti
   }
 
   revalidatePath("/portfolio");
-  return { success: true, count: recordsToInsert.length };
+  const skipped = unmatchedHoldings.map((h) => h.assetIdentifier.trim()).slice(0, 10);
+  return { success: true, count: recordsToInsert.length, skipped };
+}
+
+export async function deleteHolding(id: number) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+  const { error } = await supabase.from("holdings").delete().eq("id", id).eq("user_id", user.id);
+  if (error) throw new Error("Failed to delete holding");
+  revalidatePath("/portfolio");
+  revalidatePath("/");
 }

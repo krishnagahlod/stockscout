@@ -10,6 +10,7 @@ export default async function AppLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  let needsOnboarding = false;
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -19,15 +20,14 @@ export default async function AppLayout({
         .from("user_profiles")
         .select("onboarding_completed")
         .eq("user_id", user.id)
-        .single();
-
-      if (profile && profile.onboarding_completed === false) {
-        redirect("/onboarding");
-      }
+        .maybeSingle();
+      needsOnboarding = !profile || profile.onboarding_completed === false;
     }
   } catch {
     // Supabase auth offline or unpausing - allow browsing
   }
+  // outside the try: redirect() works by throwing, which the catch above would swallow
+  if (needsOnboarding) redirect("/onboarding");
 
   return (
     <div className="flex h-screen w-full bg-mesh-light selection:bg-indigo-100 selection:text-indigo-900 font-sans text-slate-900">

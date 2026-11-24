@@ -97,8 +97,9 @@ export function ImportCSVModal() {
           
           if (response.success) {
             setStatus("success");
-            setMessage(`Successfully imported ${response.count} holdings.`);
-            setTimeout(() => {
+            const skipped = response.skipped ?? [];
+            setMessage(`Imported ${response.count} holdings.` + (skipped.length ? ` Not found (skipped): ${skipped.join(", ")}.` : ""));
+            if (!skipped.length) setTimeout(() => {
               setOpen(false);
               setFile(null);
               setStatus("idle");

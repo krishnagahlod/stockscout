@@ -15,13 +15,14 @@ from app.models.db_models import Stock, DailyPrice, TechnicalFeature
 
 
 async def _load_prices(db: AsyncSession, stock_id: int) -> pd.DataFrame:
-    """Load all daily prices for a stock into a DataFrame."""
+    """Load the last ~450 trading days for a stock (enough for 200-day and 1-year indicators)."""
     result = await db.execute(
         select(DailyPrice)
         .where(DailyPrice.stock_id == stock_id)
-        .order_by(DailyPrice.date.asc())
+        .order_by(DailyPrice.date.desc())
+        .limit(450)
     )
-    rows = result.scalars().all()
+    rows = list(reversed(result.scalars().all()))
     if not rows:
         return pd.DataFrame()
 

@@ -235,7 +235,7 @@ async def sync_prices_for_stock(
         logger.warning(f"No price data for {stock.symbol}")
         return 0
 
-    count = 0
+    rows = []
     for _, row in df.iterrows():
         price_date = row["date"]
         if isinstance(price_date, pd.Timestamp):
@@ -243,41 +243,31 @@ async def sync_prices_for_stock(
         elif isinstance(price_date, str):
             from datetime import datetime as dt
             price_date = dt.strptime(price_date[:10], "%Y-%m-%d").date()
+        rows.append({
+            "stock_id": stock.id,
+            "date": price_date,
+            "open": float(row.get("open", 0)),
+            "high": float(row.get("high", 0)),
+            "low": float(row.get("low", 0)),
+            "close": float(row.get("close", 0)),
+            "adj_close": float(row.get("adj_close", row.get("close", 0))),
+            "volume": int(row.get("volume", 0)),
+            "dividends": float(row.get("dividends", 0)),
+            "stock_splits": float(row.get("stock_splits", 0)),
+        })
 
-        existing = await db.execute(
-            select(DailyPrice).where(
-                DailyPrice.stock_id == stock.id,
-                DailyPrice.date == price_date,
-            )
-        )
-        price_row = existing.scalar_one_or_none()
-
-        if price_row:
-            price_row.open = float(row.get("open", 0))
-            price_row.high = float(row.get("high", 0))
-            price_row.low = float(row.get("low", 0))
-            price_row.close = float(row.get("close", 0))
-            price_row.adj_close = float(row.get("adj_close", row.get("close", 0)))
-            price_row.volume = int(row.get("volume", 0))
-            price_row.dividends = float(row.get("dividends", 0))
-            price_row.stock_splits = float(row.get("stock_splits", 0))
-        else:
-            price_row = DailyPrice(
-                stock_id=stock.id,
-                date=price_date,
-                open=float(row.get("open", 0)),
-                high=float(row.get("high", 0)),
-                low=float(row.get("low", 0)),
-                close=float(row.get("close", 0)),
-                adj_close=float(row.get("adj_close", row.get("close", 0))),
-                volume=int(row.get("volume", 0)),
-                dividends=float(row.get("dividends", 0)),
-                stock_splits=float(row.get("stock_splits", 0)),
-            )
-            db.add(price_row)
-        count += 1
-
-    await db.commit()
+    # one upsert per stock instead of a select + insert per day (each is a network round trip)
+    if db.bind.dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+    stmt = dialect_insert(DailyPrice).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["stock_id", "date"],
+        set_={c: stmt.excluded[c] for c in ("open", "high", "low", "close", "adj_close", "volume", "dividends", "stock_splits")},
+    )
+    await db.execute(stmt)
+    count = len(rows)
     stock.last_updated = datetime.utcnow()
     await db.commit()
 

@@ -3,26 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import {
-  LayoutDashboard,
-  Search,
-  BookOpen,
-  BarChart3,
-  PieChart,
-  Bell,
-  Settings,
-  Activity,
-} from "lucide-react";
+import { Home, Lightbulb, PieChart } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/screener", label: "Screener", icon: Search },
-  { href: "/check-stock", label: "Check Stock", icon: Activity },
-  { href: "/strategies", label: "Strategies", icon: BookOpen },
-  { href: "/backtest", label: "Backtest", icon: BarChart3 },
+const navItems: { href: string; label: string; icon: typeof Home; showBadge?: boolean }[] = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/ideas", label: "Ideas", icon: Lightbulb },
   { href: "/portfolio", label: "Portfolio", icon: PieChart },
-  { href: "/alerts", label: "Alerts", icon: Bell, showBadge: true },
-  { href: "/settings", label: "Data & Settings", icon: Settings },
 ];
 
 export function SidebarNav({ unreadCount = 0 }: { unreadCount?: number }) {

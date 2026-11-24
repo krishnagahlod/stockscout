@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Search } from "lucide-react";
 import { useDebounce } from "use-debounce";
-import { getStocks, Stock } from "@/lib/api";
+import { searchStocks as findStocks, type StockHit } from "@/lib/search";
 import { Badge } from "@/components/ui/badge";
 
 interface StockAutocompleteProps {
@@ -21,7 +21,7 @@ export function StockAutocomplete({
 }: StockAutocompleteProps) {
   const [query, setQuery] = React.useState(defaultValue);
   const [debouncedQuery] = useDebounce(query, 300);
-  const [results, setResults] = React.useState<Stock[]>([]);
+  const [results, setResults] = React.useState<StockHit[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [isOpen, setIsOpen] = React.useState(false);
   
@@ -45,9 +45,9 @@ export function StockAutocomplete({
       }
       setLoading(true);
       try {
-        const response = await getStocks({ search: debouncedQuery, page_size: 5 });
-        setResults(response.items || []);
-        if (response.items && response.items.length > 0) {
+        const items = await findStocks(debouncedQuery, 5);
+        setResults(items);
+        if (items.length > 0) {
            setIsOpen(true);
         }
       } catch (err) {

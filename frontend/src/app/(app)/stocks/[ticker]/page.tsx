@@ -1,240 +1,139 @@
-import { createClient } from "@/utils/supabase/server";
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { ArrowLeft, Sparkles } from "lucide-react";
+import { createClient } from "@/utils/supabase/server";
+import { getByTicker, getPriceHistory, getUniverse } from "@/lib/market";
+import { dayChange, yearChange, type MetricKey } from "@/lib/metrics";
+import { businessVerdict, priceVerdict, trendVerdict, type Verdict } from "@/lib/glance";
+import { crores, niceDate, pct, rupees, shortTicker } from "@/lib/format";
+import { Change, MetricRow, Panel } from "@/components/kit";
+import { Button } from "@/components/ui/button";
 import { StockChart } from "./stock-chart";
 import { NewsPanel } from "./news-panel";
-import { FundamentalsGrid } from "./fundamentals-grid";
-import { DVMScorecard } from "./dvm-scorecard";
-import { FinancialStatements } from "./financial-statements";
-import { ShareholdingPattern } from "./shareholding-pattern";
-import { PeerComparison } from "./peer-comparison";
-import { ArrowUpRight, ArrowDownRight, TrendingUp, Sparkles } from "lucide-react";
 
-export default async function StockProfilePage({
-  params,
-}: {
-  params: Promise<{ ticker: string }>;
-}) {
+export async function generateMetadata({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
-  const decodedTicker = decodeURIComponent(ticker).toUpperCase();
+  return { title: `${decodeURIComponent(ticker).toUpperCase()} | StockScout` };
+}
 
-  const backendUrl = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-  const apiKey = process.env.FASTAPI_SECRET || "";
+const toneStyle: Record<Verdict["tone"], string> = {
+  good: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  ok: "bg-slate-50 text-slate-700 border-slate-200",
+  weak: "bg-amber-50 text-amber-800 border-amber-100",
+  unknown: "bg-slate-50 text-slate-500 border-slate-200",
+};
 
-  let stock: any = null;
-  let fundamentals: any = null;
-  let prices: any[] = [];
-  let news: any[] = [];
-  let financialStatements: any = null;
-  let shareholding: any[] = [];
-  let peers: any[] = [];
-  let dvmScore: any = null;
-  let aiAnalysis = "";
+const DETAIL_GROUPS: { title: string; metrics: MetricKey[] }[] = [
+  { title: "How good is the business?", metrics: ["roe", "net_margin", "debt_to_equity", "market_cap_cr"] },
+  { title: "Is the price reasonable?", metrics: ["pe", "pb", "dividend_yield"] },
+  { title: "How has the share behaved?", metrics: ["momentum_12m", "volatility_30d", "max_drawdown_1y", "beta", "rsi_14"] },
+];
 
-  // 1. Fetch from FastAPI backend with Stale-While-Revalidate caching
-  try {
-    const res = await fetch(`${backendUrl}/api/stocks/${decodedTicker}`, {
-      headers: { "X-API-Key": apiKey },
-      next: { revalidate: 120 },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      stock = data;
-      fundamentals = data.fundamentals || null;
-      prices = data.prices || [];
-      news = data.news || [];
-      financialStatements = data.financial_statements || null;
-      shareholding = data.shareholding || [];
-      peers = data.peers || [];
-      dvmScore = data.dvm_score || null;
-    }
-  } catch (err) {
-    console.error("Backend stock fetch error, trying Supabase...", err);
-  }
+export default async function StockPage({ params }: { params: Promise<{ ticker: string }> }) {
+  const { ticker } = await params;
+  const supabase = await createClient();
+  const stock = await getByTicker(supabase, decodeURIComponent(ticker));
+  if (!stock) notFound();
 
-  // 2. Fallback to direct Supabase client if backend didn't return stock
-  if (!stock) {
-    try {
-      const supabase = await createClient();
-      const { data: sbStock } = await supabase
-        .from("stocks")
-        .select("*")
-        .eq("ticker", decodedTicker)
-        .single();
+  const [universe, history, { data: news }] = await Promise.all([
+    getUniverse(supabase),
+    getPriceHistory(supabase, stock.stock_id, 5),
+    supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
+  ]);
 
-      if (sbStock) {
-        stock = sbStock;
-        const { data: sbFund } = await supabase
-          .from("stock_fundamentals")
-          .select("*")
-          .eq("stock_id", stock.id)
-          .order("as_of_date", { ascending: false })
-          .limit(1)
-          .single();
-        fundamentals = sbFund || null;
-
-        const { data: rawPrices } = await supabase
-          .from("daily_prices")
-          .select("*")
-          .eq("stock_id", stock.id)
-          .order("date", { ascending: false })
-          .limit(90);
-        prices = rawPrices ? [...rawPrices].reverse() : [];
-
-        const { data: sbNews } = await supabase
-          .from("news_items")
-          .select("*")
-          .eq("stock_id", stock.id)
-          .order("published_at", { ascending: false })
-          .limit(5);
-        news = sbNews || [];
-      }
-    } catch (sbErr) {
-      console.error("Supabase stock fetch error:", sbErr);
-    }
-  }
-
-  if (!stock) {
-    notFound();
-  }
-
-  // Ensure ticker field exists
-  if (!stock.ticker) {
-    stock.ticker = stock.symbol || decodedTicker;
-  }
-
-  // 3. Fetch AI News Analysis (graceful non-blocking)
-  try {
-    const aiRes = await fetch(`${backendUrl}/api/llm/news-analysis/${stock.ticker}`, {
-      headers: { "X-API-Key": apiKey },
-      next: { revalidate: 300 },
-    });
-    if (aiRes.ok) {
-      const aiData = await aiRes.json();
-      aiAnalysis = aiData.analysis || "";
-    }
-  } catch (err) {
-    console.error("Failed to fetch AI news analysis", err);
-  }
-
-  // Calculate day change if we have at least 2 prices
-  let currentPrice = 0;
-  let dayChange = 0;
-  let dayChangePct = 0;
-
-  if (prices && prices.length >= 2) {
-    const latest = prices[prices.length - 1];
-    const prev = prices[prices.length - 2];
-    currentPrice = latest.close;
-    dayChange = latest.close - prev.close;
-    dayChangePct = (dayChange / prev.close) * 100;
-  } else if (prices && prices.length === 1) {
-    currentPrice = prices[0].close;
-  }
-
-  const isPositive = dayChange >= 0;
+  const verdicts = [
+    { heading: "The business", v: businessVerdict(stock) },
+    { heading: "The price", v: priceVerdict(stock, universe) },
+    { heading: "Recent trend", v: trendVerdict(stock) },
+  ];
+  const peers = universe
+    .filter((u) => u.sector === stock.sector && u.stock_id !== stock.stock_id)
+    .sort((a, b) => (b.market_cap_cr ?? 0) - (a.market_cap_cr ?? 0))
+    .slice(0, 5);
+  const inRange = stock.week_52_high && stock.week_52_low && stock.price
+    ? (stock.price - stock.week_52_low) / (stock.week_52_high - stock.week_52_low) : null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-6 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-xs">
+    <div className="max-w-6xl mx-auto space-y-6">
+      <Link href="/" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"><ArrowLeft className="h-4 w-4" />Home</Link>
+
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              {stock.name}
-            </h1>
-            <Badge variant="outline" className="font-mono text-xs font-bold px-2.5 py-0.5">
-              {stock.ticker.replace(".NS", "")}
-            </Badge>
-            {stock.is_index_member && (
-              <Badge className="bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200/50">
-                {stock.index_name || "NIFTY 500"}
-              </Badge>
-            )}
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 mt-1.5 text-sm font-medium">
-            {stock.exchange || "NSE"} · {stock.sector || "General"} · {stock.industry || "Diversified"}
-          </p>
+          <p className="text-sm text-slate-500">{shortTicker(stock.ticker)} · {stock.sector}{stock.industry && stock.industry !== stock.sector ? ` · ${stock.industry}` : ""}</p>
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-slate-900">{stock.name}</h1>
+          <p className="mt-1 text-sm text-slate-500">Company size {crores(stock.market_cap_cr)}</p>
         </div>
-
-        <div className="text-right">
-          <div className="text-4xl font-extrabold font-mono tracking-tight text-slate-900 dark:text-white">
-            ₹{currentPrice.toFixed(2)}
-          </div>
-          <div
-            className={`flex items-center justify-end gap-1 text-sm font-bold mt-1 ${
-              isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-            }`}
-          >
-            {isPositive ? (
-              <ArrowUpRight className="h-4 w-4" />
-            ) : (
-              <ArrowDownRight className="h-4 w-4" />
-            )}
-            <span>₹{Math.abs(dayChange).toFixed(2)}</span>
-            <span>({Math.abs(dayChangePct).toFixed(2)}%) Today</span>
-          </div>
+        <div className="md:text-right">
+          <p className="font-display text-3xl font-bold tabular-nums">{rupees(stock.price, true)}</p>
+          <p className="text-sm"><Change value={dayChange(stock)} suffix="last day" /> · <Change value={yearChange(stock)} suffix="1 year" /></p>
+          <p className="text-xs text-slate-400 mt-1">Price on {niceDate(stock.price_date)}</p>
         </div>
       </div>
 
-      {/* DVM Scorecard (Durability, Valuation, Momentum) */}
-      {dvmScore && <DVMScorecard score={dvmScore} />}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Interactive Price Chart with Timeframes */}
-          <Card className="rounded-3xl border-slate-200/70 dark:border-slate-800 shadow-xs">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg font-bold">Interactive Price Chart</CardTitle>
-              <CardDescription>Candle history & timeframe analysis</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <StockChart data={prices || []} />
-            </CardContent>
-          </Card>
-
-          {/* Key Fundamentals Grid */}
-          <Card className="rounded-3xl border-slate-200/70 dark:border-slate-800 shadow-xs">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-bold">Key Valuation & Quality Ratios</CardTitle>
-              <CardDescription>
-                Audited as of {fundamentals?.as_of_date || "Latest Period"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FundamentalsGrid fundamentals={fundamentals} />
-            </CardContent>
-          </Card>
-
-          {/* 5-Year Consolidated Financial Statements */}
-          <FinancialStatements statements={financialStatements} />
-
-          {/* Shareholding Pattern Trends */}
-          <ShareholdingPattern shareholding={shareholding} />
-
-          {/* Sector Peer Comparison Matrix */}
-          <PeerComparison peers={peers} currentSymbol={stock.ticker} />
-        </div>
-
-        {/* Sidebar Column */}
-        <div className="space-y-6">
-          <Card className="rounded-3xl border-slate-200/70 dark:border-slate-800 shadow-xs sticky top-24">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-bold">
-                <Sparkles className="h-4 w-4 text-indigo-600" />
-                AI News & Thesis Synthesis
-              </CardTitle>
-              <CardDescription>Event analysis and sentiment overview</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <NewsPanel news={news || []} aiAnalysis={aiAnalysis} />
-            </CardContent>
-          </Card>
-        </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {verdicts.map(({ heading, v }) => (
+          <Panel key={heading}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{heading}</p>
+            <span className={`mt-2 inline-block rounded-full border px-3 py-1 text-sm font-semibold ${toneStyle[v.tone]}`}>{v.label}</span>
+            <p className="mt-3 text-sm text-slate-600 leading-relaxed">{v.text}</p>
+          </Panel>
+        ))}
       </div>
+
+      <Panel>
+        <StockChart data={history} />
+        {inRange != null && (
+          <div className="mt-4">
+            <div className="flex justify-between text-xs text-slate-500"><span>52-week low {rupees(stock.week_52_low)}</span><span>52-week high {rupees(stock.week_52_high)}</span></div>
+            <div className="relative mt-1 h-2 rounded-full bg-slate-100">
+              <div className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 -translate-x-1/2 rounded-full bg-indigo-600 ring-2 ring-white" style={{ left: `${Math.min(Math.max(inRange, 0), 1) * 100}%` }} />
+            </div>
+          </div>
+        )}
+      </Panel>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Panel className="lg:col-span-2">
+          <h2 className="font-display text-lg font-bold text-slate-900">All the numbers</h2>
+          <p className="text-sm text-slate-500 mb-2">Tap any line to see what it means. Company numbers from {niceDate(stock.fundamentals_date)}.</p>
+          <div className="grid gap-x-8 md:grid-cols-2">
+            {DETAIL_GROUPS.map((g) => (
+              <div key={g.title} className="mt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{g.title}</p>
+                {g.metrics.map((m) => <MetricRow key={m} metric={m} value={stock[m] as number | null} />)}
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900 mb-2">Similar companies</h2>
+          {peers.length === 0 ? <p className="text-sm text-slate-500">No similar companies in our list.</p> : (
+            <ul className="divide-y divide-slate-100">
+              {peers.map((p) => (
+                <li key={p.stock_id}>
+                  <Link href={`/stocks/${shortTicker(p.ticker)}`} className="flex items-center justify-between gap-2 py-2.5 hover:text-indigo-600">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium truncate">{p.name}</span>
+                      <span className="text-xs text-slate-400">P/E {p.pe?.toFixed(0) ?? "—"} · ROE {pct(p.roe, 0)}</span>
+                    </span>
+                    <Change value={yearChange(p)} className="text-xs" suffix="1y" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link href={`/ideas?q=${encodeURIComponent(`Companies like ${stock.name} in ${stock.sector}`)}`}>
+            <Button variant="secondary" className="mt-4 w-full rounded-xl"><Sparkles className="h-4 w-4 mr-2" />Find more like this</Button>
+          </Link>
+        </Panel>
+      </div>
+
+      <Panel>
+        <h2 className="font-display text-lg font-bold text-slate-900 mb-3">Recent news</h2>
+        <NewsPanel news={news ?? []} />
+      </Panel>
+
+      <p className="text-xs text-slate-400">Information to help you research, not advice to buy or sell. Data from public sources and may be delayed or incomplete.</p>
     </div>
   );
 }

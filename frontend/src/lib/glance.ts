@@ -34,7 +34,7 @@ function debtLine(s: StockSnapshot): string {
 export function businessVerdict(s: StockSnapshot, universe: StockSnapshot[]): Verdict {
   const { roe, net_margin: nm } = s;
   if (roe == null) return { label: "Not enough data", tone: "unknown", text: "We don't have recent profit numbers for this company." };
-  const margin = nm != null ? ` Keeps ₹${Math.round(nm * 100)} of every ₹100 of sales as profit.` : "";
+  const margin = nm == null ? "" : nm < 0 ? ` Lost ₹${Math.round(-nm * 100)} for every ₹100 of sales.` : ` Keeps ₹${Math.round(nm * 100)} of every ₹100 of sales as profit.`;
   const heavyDebt = !isLender(s) && s.debt_to_equity != null && s.debt_to_equity > 1.5;
   if (roe < 0) return { label: "Made a loss", tone: "weak", text: "Lost money on its owners' capital in the latest year we have." + debtLine(s) + margin };
   const r = rankOf(universe.map((u) => u.roe).filter((x): x is number => x != null), roe);

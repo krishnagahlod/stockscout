@@ -57,3 +57,15 @@ export function softenAdvice(text: string): string {
     .replace(/\brecommend(ed|s|ation)?\b/gi, "suggest$1")
     .replace(/\bguaranteed?\b/gi, "likely");
 }
+
+// A call, target or prediction in AI text means the whole answer is dropped (we show facts, never calls).
+const CALL_WORDS = /\b(buy|buying opportunity|sell|hold|accumulate|target|undervalued|overvalued|multibagger|will (rise|fall|grow|go up|go down)|good investment|bad investment|should invest)\b/i;
+
+/** The lines, softened, or null if any of them reads like a call. */
+export function factsOnly(lines: unknown, max: number): string[] | null {
+  if (!Array.isArray(lines)) return null;
+  const out = lines.filter((l): l is string => typeof l === "string" && l.trim().length > 0).slice(0, max).map((l) => softenAdvice(l.trim()));
+  // words inside quotes are the tip's own, quoted back to the reader, so they don't count
+  const unquoted = (l: string) => l.replace(/"[^"]*"|“[^”]*”|‘[^’]*’/g, "");
+  return out.length && !out.some((l) => CALL_WORDS.test(unquoted(l))) ? out : null;
+}

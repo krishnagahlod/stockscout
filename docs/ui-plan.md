@@ -1,6 +1,6 @@
 # StockScout UI and navigation plan
 
-*Written 25 Nov 2026; steps 1 to 5 built the same evening (see Build status).*
+*Written 25 Nov 2026; built the same evening (see Build status).*
 
 ## Build status (25 Nov 2026)
 
@@ -13,7 +13,8 @@ Built with the recommended answers to the decisions at the end (bottom tabs; Pra
 - [x] **Stock page:** a one-line summary built from the numbers ("Profitable, borrows little and its P/E is below its own 4-year middle."), then tabs: Overview, Results, Owners, All numbers, News.
 - [x] **Funds:** opens with "Most people start with an index fund that follows the Nifty 50" and three such funds from different fund houses (highest 5-year return, which for the same index mostly means lowest fees; we don't have expense ratios). Then three plain groups, then search and every group as a short list.
 - [x] **Practice:** a "Pretend money" badge next to the title.
-- [ ] Last pass over every page (Ideas, Check, Learn, Start, Sources, Compare) at phone width and desktop.
+- [x] Last pass at phone width and desktop: Home's entry cards are whole-card links and shorter; Ideas' ready-made ideas are compact rows on phones. Check, Learn, Start, Compare and Portfolio were already fine; Sources stays a long reference page.
+- [x] The AI "In 3 lines" sits under the stock page's summary line (see v2 plan).
 
 Measured on an iPhone 13-sized screen (whole screens): Market today about 3 (was 8); the stock page's Overview tab about 4, with results, owners, every number and news behind the other tabs.
 

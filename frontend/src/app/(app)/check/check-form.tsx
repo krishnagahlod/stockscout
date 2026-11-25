@@ -43,6 +43,12 @@ export function CheckForm() {
       {state.checked && (
         <section id="tip-results" aria-live="polite" className="space-y-4">
           <p className="font-display text-xl font-bold text-slate-900">{headline(state)}</p>
+          {state.summary && (
+            <div className="rounded-3xl border border-indigo-100 bg-indigo-50/60 px-5 py-4">
+              <p className="text-[15px] leading-relaxed text-slate-800">{state.summary}</p>
+              <p className="mt-1 text-xs text-slate-500">Summary written by AI from the checks below. It can be wrong; the checks are what count.</p>
+            </div>
+          )}
 
           {!!state.hype?.length && (
             <Panel className="border-l-4 border-rose-400">

@@ -53,7 +53,7 @@ import { summarize } from "../portfolio";
 }
 
 // Glance cards state rank, not verdicts
-import { rankOf, standing, stockGlance } from "../glance";
+import { businessVerdict, rankOf, standing, stockGlance } from "../glance";
 {
   assert.equal(rankOf([1, 2, 3, 4], 3.5), 0.75);
   assert.equal(standing(0.83), "top 15%");
@@ -62,6 +62,7 @@ import { rankOf, standing, stockGlance } from "../glance";
   assert.equal(stockGlance({ ...stock(9, "IT", 0.2, 10), debt_to_equity: 0.1 }, { pos: "close to", years: 5 }), "Profitable, borrows little and its P/E is close to its own 5-year middle.");
   assert.equal(stockGlance({ ...stock(9, "Financial Services", -0.1, 10), debt_to_equity: 8 }, null), "Made a loss in its latest year.", "lenders' debt isn't judged");
   assert.equal(stockGlance(stock(9, "IT", null, 10), null), null);
+  assert.match(businessVerdict({ ...stock(9, "Auto", -0.2, 10), net_margin: -1.05 }, universe).text, /Lost ₹105 for every ₹100 of sales/);
   console.log("glance check: ok");
 }
 
@@ -256,3 +257,12 @@ assert.equal(lastSum([1, 2, 3, 4], 3), 9, "sums the last n");
 assert.equal(lastSum([1, 2], 3), null, "too few values");
 assert.equal(lastSum([1, null, 3], 2), null, "a missing day spoils the sum");
 console.log("flows: ok");
+
+import { factsOnly } from "../llm";
+assert.deepEqual(factsOnly(["Makes cars.", " Profit is up. ", 3], 3), ["Makes cars.", "Profit is up."], "strings only, trimmed");
+assert.equal(factsOnly(["Makes cars.", "A good time to buy."], 3), null, "a call drops everything");
+assert.equal(factsOnly(["Its price will rise."], 3), null, "a prediction drops everything");
+assert.equal(factsOnly("text", 3), null);
+assert.deepEqual(factsOnly(['It promises a "target ₹100 by Friday".'], 2), ['It promises a "target ₹100 by Friday".'], "quoted tip words are allowed");
+assert.equal(factsOnly(["The company's numbers say buy, it's cheap."], 2), null, "apostrophes aren't quotes");
+console.log("ai guard: ok");

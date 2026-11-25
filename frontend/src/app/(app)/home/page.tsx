@@ -11,7 +11,7 @@ import { niceDate, pct, rupees } from "@/lib/format";
 import { Change, Panel } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 
-const door = "flex flex-col rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-sm";
+const door = "flex flex-col rounded-3xl border border-slate-200/70 bg-white/80 p-4 sm:p-5 shadow-sm";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -50,18 +50,18 @@ export default async function HomePage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className={door}>
+        <Link href="/start" className={`${door} group hover:border-indigo-300`}>
           <Compass className="h-6 w-6 text-indigo-600" aria-hidden />
           <h2 className="mt-3 font-display text-lg font-bold text-slate-900">New to this?</h2>
           <p className="mt-1 flex-1 text-sm text-slate-600">Three quick questions, then a plain path for where to begin.</p>
-          <Link href="/start" className="mt-4"><Button className="w-full rounded-xl">Start here <ArrowRight className="ml-1 h-4 w-4" /></Button></Link>
-        </div>
-        <div className={door}>
+          <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600 group-hover:underline">Start here <ArrowRight className="h-4 w-4" aria-hidden /></span>
+        </Link>
+        <Link href="/check" className={`${door} group hover:border-indigo-300`}>
           <ShieldCheck className="h-6 w-6 text-indigo-600" aria-hidden />
           <h2 className="mt-3 font-display text-lg font-bold text-slate-900">Got a tip?</h2>
           <p className="mt-1 flex-1 text-sm text-slate-600">Paste the message. We check the company&apos;s real numbers and the warning signs.</p>
-          <Link href="/check" className="mt-4"><Button className="w-full rounded-xl">Check it <ArrowRight className="ml-1 h-4 w-4" /></Button></Link>
-        </div>
+          <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-indigo-600 group-hover:underline">Check it <ArrowRight className="h-4 w-4" aria-hidden /></span>
+        </Link>
         <div className={door}>
           <Sparkles className="h-6 w-6 text-indigo-600" aria-hidden />
           <h2 className="mt-3 font-display text-lg font-bold text-slate-900">Have an idea?</h2>

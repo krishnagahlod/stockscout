@@ -14,7 +14,7 @@ Phase 1, in the agreed order. Ticked items are built (24 Nov 2026).
 - [x] Stock page v2: TradingView Lightweight Charts (line, candles, vs Nifty 50, 50/200-day averages), worst-case line, "above its 50-day average since"
 - [x] Practice mode (/practice): ₹1,00,000 of pretend money, buy and sell at the latest close, "try this idea with practice money"
 - [x] Market today (/market): one-line summary, industry map, big movers, breadth
-- [ ] AI explainer: the Groq key is in (25 Nov 2026) and typed ideas work with it; "explain this company in 3 lines" and the tip-checker summary are still to build
+- [x] AI explainer (25 Nov 2026): "In 3 lines" under the summary on stock pages (from our own numbers, cached a day per company, loads after the page) and a 2-sentence summary on the tip checker. Any answer with a buy, sell, hold, target or prediction word outside quotes is thrown away (`factsOnly` in lib/llm.ts); both are labelled as written by AI and disappear when AI is off. Needs `GROQ_API_KEY` in Vercel.
 
 Phase 2, built 25 Nov 2026:
 

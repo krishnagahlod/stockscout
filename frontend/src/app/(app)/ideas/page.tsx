@@ -28,12 +28,14 @@ export default async function IdeasPage({ searchParams }: { searchParams: Promis
       </Panel>
 
       <h2 className="font-display text-lg font-bold text-slate-900 mb-3">Or start with a ready-made idea</h2>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-10">
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-10">
         {STARTER_IDEAS.map((s) => (
-          <Link key={s.slug} href={`/ideas/s-${s.slug}`} className="glass-card rounded-3xl p-5 transition hover:shadow-premium-hover">
+          <Link key={s.slug} href={`/ideas/s-${s.slug}`} className="glass-card flex items-start gap-3 rounded-3xl p-4 transition hover:shadow-premium-hover sm:block sm:p-5">
             <div className="text-2xl" aria-hidden>{s.emoji}</div>
-            <p className="mt-2 font-semibold text-slate-900">{s.name}</p>
-            <p className="mt-1 text-sm text-slate-500">{s.tagline}</p>
+            <div>
+              <p className="font-semibold text-slate-900 sm:mt-2">{s.name}</p>
+              <p className="mt-1 text-sm text-slate-500">{s.tagline}</p>
+            </div>
           </Link>
         ))}
       </div>

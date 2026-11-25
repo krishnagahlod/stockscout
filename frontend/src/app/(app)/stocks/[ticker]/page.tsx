@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { PriceChart } from "./price-chart";
 import { NewsPanel } from "./news-panel";
 import { StockTabs } from "./stock-tabs";
+import { AiExplainer } from "./ai-explainer";
+import { Suspense } from "react";
 
 export async function generateMetadata({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker } = await params;
@@ -342,6 +344,18 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
       </div>
 
       {glance && <p className="font-display text-lg md:text-xl leading-snug text-slate-800">{glance}</p>}
+
+      {!isFund && (
+        <Suspense fallback={null}>
+          <AiExplainer stockId={stock.stock_id} dataDate={`${stock.fundamentals_date}|${stock.price_date}`} facts={[
+            `Company: ${stock.name} (NSE: ${shortTicker(stock.ticker)}), ${stock.sector}${stock.industry ? `, ${stock.industry}` : ""}. Size ${crores(stock.market_cap_cr)}.`,
+            ...(glance ? [glance] : []),
+            ...verdicts.map(({ heading, v }) => `${heading}: ${v.label}. ${v.text}`),
+            ...(events.payments12m > 0 ? [`Paid ₹${events.paid12m.toFixed(2)} a share in dividends over the past year.`] : []),
+            ...(holder && Number(holder.pledged) > 0.001 ? [`Promoters have pledged ${share(holder.pledged)} of their shares for loans.`] : []),
+          ]} />
+        </Suspense>
+      )}
 
       <StockTabs tabs={tabs} />
 

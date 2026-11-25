@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Activity, Compass, FlaskConical, Home, Lightbulb, PieChart, ShieldCheck } from "lucide-react";
+import { Activity, BookOpen, Compass, FlaskConical, Home, Landmark, Lightbulb, PieChart, ShieldCheck } from "lucide-react";
 
 const navItems: { href: string; label: string; icon: typeof Home; showBadge?: boolean }[] = [
   { href: "/home", label: "Home", icon: Home },
   { href: "/market", label: "Market today", icon: Activity },
   { href: "/start", label: "Start here", icon: Compass },
   { href: "/ideas", label: "Ideas", icon: Lightbulb },
+  { href: "/funds", label: "Mutual funds", icon: Landmark },
   { href: "/portfolio", label: "Portfolio", icon: PieChart },
   { href: "/practice", label: "Practice", icon: FlaskConical },
   { href: "/check", label: "Check a tip", icon: ShieldCheck },
+  { href: "/learn", label: "Learn", icon: BookOpen },
 ];
 
 export function SidebarNav({ unreadCount = 0 }: { unreadCount?: number }) {

@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
 import { getSnapshots, dataAsOf } from "@/lib/market";
 import { summarize, type HoldingRow } from "@/lib/portfolio";
+import { upcoming, type StockEvent } from "@/lib/events";
+import { TAX, taxIfSoldToday } from "@/lib/tax";
 import { niceDate, pct, rupees } from "@/lib/format";
 import { Change, Empty, PageTitle, Panel } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,7 @@ export default async function PortfolioPage() {
 
   const { data: holdings, error } = await supabase
     .from("holdings")
-    .select("id, stock_id, quantity, avg_buy_price")
+    .select("id, stock_id, quantity, avg_buy_price, acquired_date")
     .eq("user_id", user.id);
   if (error) throw new Error(`Could not load holdings: ${error.message}`);
 
@@ -29,6 +31,18 @@ export default async function PortfolioPage() {
   const snaps = await getSnapshots(supabase, Array.from(new Set(rows.map((h) => h.stock_id))));
   const s = summarize(rows, snaps);
   const asOf = dataAsOf(Array.from(snaps.values()));
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: eventRows } = snaps.size
+    ? await supabase.from("stock_events").select("stock_id, kind, event_date, amount").in("stock_id", Array.from(snaps.keys())).gte("event_date", today)
+    : { data: [] };
+  const soon = upcoming((eventRows ?? []) as StockEvent[], today, 60).filter((e) => e.kind !== "split");
+  const tax = taxIfSoldToday(
+    (rows as (HoldingRow & { acquired_date: string | null })[]).flatMap((h) => {
+      const st = snaps.get(h.stock_id);
+      return st?.price ? [{ name: st.name, quantity: h.quantity, buyPrice: Number(h.avg_buy_price), boughtOn: h.acquired_date, price: st.price }] : [];
+    }),
+    today,
+  );
 
   const actions = (
     <div className="flex gap-2">
@@ -98,6 +112,37 @@ export default async function PortfolioPage() {
         <HoldingsTable positions={s.positions} />
         {s.unpriced > 0 && <p className="mt-3 text-xs text-slate-500">{s.unpriced} holding(s) aren&apos;t shown because we have no price for them.</p>}
       </Panel>
+
+      {tax.rows.length > 0 && (
+        <details className="glass-card rounded-3xl p-5 md:p-6 group">
+          <summary className="cursor-pointer list-none font-display font-bold text-slate-900">If you sold everything today: tax <span className="text-sm font-normal text-slate-500 group-open:hidden">(an estimate, tap to see)</span></summary>
+          <div className="mt-4 space-y-3 text-sm text-slate-700">
+            <p className="text-base">Estimated tax: <strong className="font-semibold">{rupees(tax.tax)}</strong></p>
+            <ul className="space-y-1">
+              <li>Short-term gain (held 12 months or less): {rupees(tax.shortGain)}, taxed at {TAX.stcg * 100}%.</li>
+              <li>Long-term gain (held more than 12 months): {rupees(tax.longGain)}. The first {rupees(TAX.exemption)} a year is tax-free{tax.exemptionUsed > 0 ? ` (${rupees(tax.exemptionUsed)} used here)` : ""}; the rest is taxed at {TAX.ltcg * 100}%.</li>
+              <li>A {TAX.cess * 100}% cess is added on top. Short-term losses can reduce long-term gains.</li>
+            </ul>
+            {tax.unknownDates > 0 && <p className="text-amber-800">{tax.unknownDates} holding{tax.unknownDates > 1 ? "s have" : " has"} no purchase date, so we treated {tax.unknownDates > 1 ? "them" : "it"} as short-term.</p>}
+            <p className="text-xs text-slate-500">Purchase dates are the ones you entered (for older or imported holdings, the day they were added). Rates from the July 2024 budget, for listed shares and equity ETFs; surcharge, older grandfathering rules and gains you already took this year aren&apos;t included. Check the current rules or a tax professional before filing.</p>
+          </div>
+        </details>
+      )}
+
+      {soon.length > 0 && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">Coming up for what you own</h2>
+          <p className="text-sm text-slate-500">The next 60 days. Results dates are the expected ones and can move.</p>
+          <ul className="mt-3 divide-y divide-slate-100 text-sm">
+            {soon.map((e) => (
+              <li key={`${e.stock_id}-${e.kind}-${e.event_date}`} className="flex justify-between gap-3 py-2">
+                <span><span className="font-medium text-slate-900">{snaps.get(e.stock_id)?.name}</span> {e.kind === "results" ? "reports results" : `goes ex-dividend (₹${Number(e.amount).toFixed(2)} a share)`}</span>
+                <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
     </div>
   );
 }

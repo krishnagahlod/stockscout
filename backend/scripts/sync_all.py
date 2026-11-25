@@ -37,6 +37,12 @@ async def sync_everything():
                 logger.info(f"Successfully synced fundamentals for {fund_count} stocks.")
             except Exception as e:
                 logger.error(f"Error during fundamental sync: {e}")
+            try:
+                from app.services.events_service import sync_events
+                logger.info(f"Step 2b: Company events (results dates, dividends, splits): {await sync_events(db)} rows")
+            except Exception as e:
+                logger.error(f"Error during events sync: {e}")
+                await db.rollback()
             
         try:
             logger.info("Step 3: Recomputing technical features...")
@@ -45,6 +51,13 @@ async def sync_everything():
         except Exception as e:
             logger.error(f"Error during feature recompute: {e}")
             
+        try:
+            from app.services.fund_service import sync_funds
+            logger.info(f"Step 3b: Mutual funds from AMFI: {await sync_funds(db)}")
+        except Exception as e:
+            logger.error(f"Error during fund sync: {e}")
+            await db.rollback()
+
         try:
             from app.services.news_service import sync_all_news
             logger.info("Step 4: Syncing news...")

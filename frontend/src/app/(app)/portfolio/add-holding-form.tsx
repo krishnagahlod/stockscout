@@ -79,7 +79,13 @@ export function AddHoldingForm() {
             <Label htmlFor="avgBuyPrice">Average Buy Price (₹)</Label>
             <Input id="avgBuyPrice" name="avgBuyPrice" type="number" step="0.01" min="0" placeholder="e.g. 2500.50" required />
           </div>
-          
+
+          <div className="space-y-2">
+            <Label htmlFor="boughtOn">Bought on</Label>
+            <Input id="boughtOn" name="boughtOn" type="date" max={new Date().toISOString().slice(0, 10)} defaultValue={new Date().toISOString().slice(0, 10)} />
+            <p className="text-xs text-slate-500">Used to tell short-term from long-term gains for tax.</p>
+          </div>
+
           <SubmitButton />
         </form>
       </SheetContent>

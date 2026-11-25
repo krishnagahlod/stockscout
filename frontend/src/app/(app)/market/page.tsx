@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { getByTicker, getUniverse } from "@/lib/market";
 import { marketDay } from "@/lib/market-day";
+import { upcoming, type StockEvent } from "@/lib/events";
 import { dayChange, type StockSnapshot } from "@/lib/metrics";
 import { niceDate, rupees, shortTicker } from "@/lib/format";
 import { Change, PageTitle, Panel } from "@/components/kit";
@@ -40,8 +41,16 @@ function MoverList({ title, list }: { title: string; list: StockSnapshot[] }) {
 
 export default async function MarketPage() {
   const supabase = await createClient();
-  const [universe, nifty, gold] = await Promise.all([getUniverse(supabase), getByTicker(supabase, "^NSEI"), getByTicker(supabase, "GOLDBEES")]);
+  const today = new Date().toISOString().slice(0, 10);
+  const [universe, nifty, gold, { data: eventRows }] = await Promise.all([
+    getUniverse(supabase), getByTicker(supabase, "^NSEI"), getByTicker(supabase, "GOLDBEES"),
+    supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("kind", "results").gte("event_date", today).order("event_date").limit(400),
+  ]);
   const m = marketDay(universe);
+  const byId = new Map(universe.map((s) => [s.stock_id, s]));
+  const results = upcoming((eventRows ?? []) as StockEvent[], today, 7)
+    .filter((e) => (byId.get(e.stock_id)?.market_cap_cr ?? 0) >= 20000)
+    .slice(0, 12);
   const niftyDay = nifty ? dayChange(nifty) : null;
   // the headline names only industries big enough to mean something
   const sizeable = m.sectors.filter((s) => s.count >= 5);
@@ -84,6 +93,24 @@ export default async function MarketPage() {
           <MoverList title="Fell the most" list={m.down} />
         </div>
       </Panel>
+
+      {results.length > 0 && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">Results expected this week</h2>
+          <p className="text-sm text-slate-500">Large companies due to report in the next 7 days. Dates are expected ones and can move.</p>
+          <ul className="mt-3 grid gap-x-8 sm:grid-cols-2 text-sm">
+            {results.map((e) => {
+              const s = byId.get(e.stock_id)!;
+              return (
+                <li key={e.stock_id} className="flex justify-between gap-3 border-b border-slate-50 py-2">
+                  <Link href={`/stocks/${shortTicker(s.ticker)}`} className="font-medium text-slate-900 hover:text-indigo-600">{s.name}</Link>
+                  <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+      )}
 
       <details className="glass-card rounded-3xl p-5 md:p-6 group">
         <summary className="cursor-pointer list-none font-display font-bold text-slate-900">Go deeper <span className="text-sm font-normal text-slate-500 group-open:hidden">(the wider picture, tap to see)</span></summary>

@@ -6,6 +6,7 @@ import { getByTicker, getPriceHistory, getUniverse } from "@/lib/market";
 import { dayChange, yearChange, type MetricKey } from "@/lib/metrics";
 import { businessVerdict, priceVerdict, trendVerdict, type Verdict } from "@/lib/glance";
 import { monthsBetween, rolling, trendSince, worstFall } from "@/lib/risk";
+import { eventSummary, type StockEvent } from "@/lib/events";
 import { crores, niceDate, pct, rupees, shortTicker } from "@/lib/format";
 import { Change, MetricRow, Panel } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -44,12 +45,14 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   const isIndex = stock.sector === "Index";
 
   const nifty = isIndex ? null : await getByTicker(supabase, "^NSEI");
-  const [universe, history, niftyHistory, { data: news }] = await Promise.all([
+  const [universe, history, niftyHistory, { data: news }, { data: eventRows }] = await Promise.all([
     getUniverse(supabase),
     getPriceHistory(supabase, stock.stock_id, 12),
     nifty ? getPriceHistory(supabase, nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
+    supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
   ]);
+  const events = eventSummary((eventRows ?? []) as StockEvent[], new Date().toISOString().slice(0, 10));
 
   const last = history[history.length - 1];
   const yearAgo = last ? `${Number(last.date.slice(0, 4)) - 1}${last.date.slice(4)}` : "";
@@ -107,6 +110,17 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
           </Panel>
         ))}
       </div>
+
+      {!isFund && (events.nextResults || events.lastDividend) && (
+        <p className="text-sm text-slate-600">
+          {events.nextResults && <>Results expected around <strong className="font-semibold text-slate-800">{niceDate(events.nextResults.event_date)}</strong>. </>}
+          {events.payments12m > 0
+            ? <>Paid <strong className="font-semibold text-slate-800">₹{events.paid12m.toFixed(2)}</strong> a share in dividends over the past year ({events.payments12m} payment{events.payments12m > 1 ? "s" : ""}).</>
+            : events.lastDividend ? <>No dividend in the past year; the last was on {niceDate(events.lastDividend.event_date)}.</> : null}
+          {events.nextDividend && <> Next ex-dividend date: {niceDate(events.nextDividend.event_date)}.</>}
+          {events.splits[0] && <> Split {events.splits[0].amount}-for-1 on {niceDate(events.splits[0].event_date)}.</>}
+        </p>
+      )}
 
       {fall1y && fall1y.fall < -0.05 && (
         <div className="rounded-3xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-[15px] leading-relaxed text-amber-950">
@@ -167,8 +181,13 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
                 ))}
               </ul>
             )}
+            {peers.length > 0 && (
+              <Link href={`/compare?t=${[stock, ...peers.slice(0, 2)].map((p) => shortTicker(p.ticker)).join(",")}`}>
+                <Button className="mt-4 w-full rounded-xl">Compare with the two largest</Button>
+              </Link>
+            )}
             <Link href={`/ideas?q=${encodeURIComponent(`Companies like ${stock.name} in ${stock.sector}`)}`}>
-              <Button variant="secondary" className="mt-4 w-full rounded-xl"><Sparkles className="h-4 w-4 mr-2" />Find more like this</Button>
+              <Button variant="secondary" className="mt-2 w-full rounded-xl"><Sparkles className="h-4 w-4 mr-2" />Find more like this</Button>
             </Link>
           </Panel>
         )}

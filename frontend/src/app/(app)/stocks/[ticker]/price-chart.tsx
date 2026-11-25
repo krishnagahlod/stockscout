@@ -33,7 +33,7 @@ function Segmented<T extends string>({ label, options, value, onChange }: { labe
   );
 }
 
-export function PriceChart({ data, benchmark, name, isIndex }: { data: PricePoint[]; benchmark: Point[]; name: string; isIndex?: boolean }) {
+export function PriceChart({ data, benchmark, name, isIndex, lineOnly }: { data: PricePoint[]; benchmark: Point[]; name: string; isIndex?: boolean; lineOnly?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState<Range>("1Y");
   const [view, setView] = useState<View>("line");
@@ -119,7 +119,7 @@ export function PriceChart({ data, benchmark, name, isIndex }: { data: PricePoin
           )}
         </p>
         <div className="flex flex-wrap gap-2">
-          <Segmented label="Chart type" options={canCompare ? VIEWS : VIEWS.filter((v) => v.id !== "compare")} value={activeView} onChange={setView} />
+          <Segmented label="Chart type" options={VIEWS.filter((v) => (v.id !== "compare" || canCompare) && (v.id !== "candles" || !lineOnly))} value={activeView} onChange={setView} />
           <Segmented label="Time range" options={RANGES.map((r) => ({ id: r, label: r }))} value={range} onChange={setRange} />
         </div>
       </div>

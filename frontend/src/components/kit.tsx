@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
 import { METRICS, formatMetric, type MetricKey } from "@/lib/metrics";
 import { HelpCircle } from "lucide-react";
+import Link from "next/link";
+import { METRIC_LESSON } from "@/lib/lessons";
 
 export function Panel({ className, children, ...props }: React.ComponentProps<"section">) {
   return (
@@ -49,6 +51,7 @@ export function MetricRow({ metric, value, note }: { metric: MetricKey; value: n
       <p className="mt-2 text-sm text-slate-500 leading-relaxed">
         {info.explain}
         {note && <span className="block mt-1 text-slate-600">{note}</span>}
+        {METRIC_LESSON[metric] && <Link href={`/learn/${METRIC_LESSON[metric]}`} className="mt-1 block font-medium text-indigo-600 underline">2-minute lesson</Link>}
       </p>
     </details>
   );

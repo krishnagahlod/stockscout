@@ -14,6 +14,10 @@ export async function addHolding(formData: FormData) {
   const ticker = formData.get("ticker") as string;
   const quantity = parseInt(formData.get("quantity") as string, 10);
   const avgBuyPrice = parseFloat(formData.get("avgBuyPrice") as string);
+  const today = new Date().toISOString().split("T")[0];
+  const boughtOn = String(formData.get("boughtOn") ?? "");
+  // a real past date in ISO form, else today
+  const acquired = /^\d{4}-\d{2}-\d{2}$/.test(boughtOn) && boughtOn <= today && boughtOn >= "1990-01-01" ? boughtOn : today;
 
   if (!ticker || isNaN(quantity) || isNaN(avgBuyPrice)) {
     throw new Error("Invalid input");
@@ -38,7 +42,7 @@ export async function addHolding(formData: FormData) {
       stock_id: stock.id,
       quantity,
       avg_buy_price: avgBuyPrice,
-      acquired_date: new Date().toISOString().split('T')[0]
+      acquired_date: acquired
     });
 
   if (insertError) {

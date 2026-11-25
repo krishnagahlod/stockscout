@@ -177,7 +177,7 @@ export function StartFlow({ facts, funds }: { facts: NiftyFacts | null; funds: F
                     <FundTable funds={nifty50} />
                   </>
                 )}
-                <p className="text-sm text-slate-500">Prefer a fixed amount every month (a SIP)? Nifty 50 index mutual funds do the same job without buying whole units. Fund pages are coming to StockScout.</p>
+                <p className="text-sm text-slate-500">Prefer a fixed amount every month (a SIP)? Nifty 50 index mutual funds do the same job without buying whole units. <Link href="/funds?group=index&q=nifty 50" className="font-semibold text-indigo-600 underline">See Nifty 50 index funds</Link>.</p>
               </Step>
               <Step n={2} title="Practise if you're nervous">
                 <p>Buy with ₹1,00,000 of pretend money at real closing prices. It&apos;s the safest way to feel what a 10% fall is like before it&apos;s your own money.</p>

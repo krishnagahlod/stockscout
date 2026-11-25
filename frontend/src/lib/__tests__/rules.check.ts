@@ -143,3 +143,53 @@ import { marketDay } from "../market-day";
   assert.deepEqual(m.down.map((s) => s.stock_id), [3], "biggest fall first, small companies excluded");
   console.log("market check: ok");
 }
+
+// Mutual fund groups
+import { groupOf } from "../funds";
+{
+  const g = (c: string) => groupOf(c).id;
+  assert.equal(g("Other Scheme - Index Funds"), "index");
+  assert.equal(g("Index Funds - Debt Funds"), "debt", "debt index funds are debt");
+  assert.equal(g("Equity Scheme - Large & Mid Cap Fund"), "flexi", "not mid/small, not large");
+  assert.equal(g("Equity Schemes - Large Cap Fund"), "large");
+  assert.equal(g("Equity Scheme - Small Cap Fund"), "midsmall");
+  assert.equal(g("Income/Debt Oriented Schemes - Liquid Fund"), "parking");
+  assert.equal(g("Income/Debt Oriented Schemes - Sectoral Fund"), "debt");
+  assert.equal(g("Hybrid Schemes - Arbitrage Fund"), "hybrid");
+  assert.equal(g("Equity Schemes - ELSS- Tax Saver Fund"), "elss");
+  assert.equal(g("Overseas Fund of Funds - Fund of Funds investing overseas"), "global");
+  console.log("fund groups check: ok");
+}
+
+// Company events
+import { eventSummary, upcoming as upcomingEvents } from "../events";
+{
+  const ev = (kind: "results" | "dividend" | "split", event_date: string, amount: number | null = null) => ({ stock_id: 1, kind, event_date, amount });
+  const evs = [ev("dividend", "2025-09-01", 4), ev("dividend", "2026-02-04", 6.5), ev("dividend", "2026-05-27", 8), ev("results", "2027-01-28"), ev("split", "2024-01-01", 10)];
+  const s = eventSummary(evs, "2026-11-25");
+  assert.equal(s.paid12m, 14.5, "only the past 12 months");
+  assert.equal(s.payments12m, 2);
+  assert.equal(s.lastDividend!.event_date, "2026-05-27");
+  assert.equal(s.nextResults!.event_date, "2027-01-28");
+  assert.equal(upcomingEvents(evs, "2026-11-25", 30).length, 0);
+  assert.equal(upcomingEvents(evs, "2026-11-25", 90).length, 1);
+  console.log("events check: ok");
+}
+
+// Tax if sold today
+import { taxIfSoldToday } from "../tax";
+{
+  const lot = (buyPrice: number, price: number, boughtOn: string | null, quantity = 100) => ({ name: "x", quantity, buyPrice, boughtOn, price });
+  const t = taxIfSoldToday([lot(100, 200, "2025-01-10"), lot(100, 150, "2026-06-01"), lot(100, 50, "2026-09-01")], "2026-11-25");
+  // long: +10,000 (under the 1.25 lakh exemption); short: +5,000 - 5,000 = 0
+  assert.equal(t.longGain, 10000);
+  assert.equal(t.shortGain, 0);
+  assert.equal(t.tax, 0);
+  const big = taxIfSoldToday([lot(100, 3100, "2024-01-01")], "2026-11-25"); // 3 lakh long-term
+  assert.equal(Math.round(big.tax), Math.round((300000 - 125000) * 0.125 * 1.04));
+  const shortLoss = taxIfSoldToday([lot(100, 3100, "2024-01-01"), lot(1000, 900, "2026-10-01", 1000)], "2026-11-25");
+  assert.equal(Math.round(shortLoss.tax), Math.round((300000 - 100000 - 125000) * 0.125 * 1.04), "short loss offsets long gain");
+  assert.equal(taxIfSoldToday([lot(100, 200, "2025-11-25")], "2026-11-25").longGain, 0, "exactly 12 months is still short-term");
+  assert.equal(taxIfSoldToday([lot(100, 200, null)], "2026-11-25").unknownDates, 1);
+  console.log("tax check: ok");
+}

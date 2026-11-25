@@ -65,7 +65,9 @@ export function findMentions(text: string, universe: StockSnapshot[]): { found: 
     if (hit) found.set(hit.stock_id, hit);
   }
   const known = new Set(universe.map((s) => short(s.ticker)));
-  const unknown = [...capsWords].filter((w) => !known.has(w) && !CAPS_STOP.has(w) && /[A-Z]{3,}/.test(w));
+  // a word that is part of a company we matched ("JSW" in "JSW Steel") isn't a separate unknown name
+  const inFound = (w: string) => [...found.values()].some((s) => new RegExp(`\\b${escape(w)}\\b`, "i").test(s.name));
+  const unknown = [...capsWords].filter((w) => !known.has(w) && !CAPS_STOP.has(w) && /[A-Z]{3,}/.test(w) && !inFound(w));
   return { found: [...found.values()], unknown };
 }
 

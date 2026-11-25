@@ -20,11 +20,11 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
   },
   nseFilings: {
     name: "Company filings on NSE",
-    short: "results and owners",
+    short: "results, owners and ratios",
     url: "https://www.nseindia.com/companies-listing/corporate-filings-financial-results",
-    what: "Quarterly and yearly results (sales, profit, EPS, cash from the business, debt, equity) and the quarterly shareholding pattern, including pledged shares, read from the XBRL files companies submit to NSE",
+    what: "Quarterly and yearly results (sales, profit, EPS, cash from the business, debt, equity) and the quarterly shareholding pattern, including pledged shares, read from the XBRL files companies submit to NSE. P/E, P/B, ROE, profit margin and debt to equity are worked out from them.",
     when: "Every Saturday; five years of history",
-    limits: "Numbers are exactly as the company filed them. We use group (consolidated) results when a company files them, and skip a period rather than mix in single-company numbers. EPS is adjusted for later splits and bonus issues so years compare fairly.",
+    limits: "Numbers are exactly as the company filed them. We use group (consolidated) results when a company files them, and skip a period rather than mix in single-company numbers. EPS is adjusted for later splits and bonus issues so years compare fairly. P/E uses the last four quarters' profit without one-off items.",
   },
   yahooPrices: {
     name: "Yahoo Finance",
@@ -36,9 +36,9 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
   },
   yahooCompany: {
     name: "Yahoo Finance",
-    short: "ratios, results dates and dividends",
+    short: "results dates, dividends and splits",
     url: "https://finance.yahoo.com",
-    what: "Ratios such as P/E and ROE, expected results dates and dividends, and results for any period missing from the filings",
+    what: "Expected results dates, dividends, splits, dividend yield and beta, and ratios and results for companies whose filings we can't use yet",
     when: "Every Saturday",
     limits: "A summary of the company's filings, not the filings themselves; it can lag a quarter. Where we have the filing itself, the filing wins.",
   },

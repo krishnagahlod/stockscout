@@ -215,6 +215,10 @@ import { adjustForSplits, peBand } from "../valuation";
   const adj = adjustForSplits([{ period_end: "2026-03-31", eps: 49.5 }, { period_end: "2025-03-31", eps: 92.81 }, { period_end: "2024-03-31", eps: null }],
     [{ event_date: "2025-08-26", amount: 2 }, { event_date: "2019-01-01", amount: 5 }]);
   assert.deepEqual(adj.map((r) => r.eps), [49.5, 46.41, null]);
+  // Kotak-style: 1:5 split on 14 Jan 2026; the Dec 2025 quarter was filed after it and already reports post-split EPS
+  const kotak = adjustForSplits([{ period_end: "2025-12-31", eps: 4.95, filed_on: "2026-01-24" }, { period_end: "2025-09-30", eps: 22.47, filed_on: "2025-10-25" }],
+    [{ event_date: "2026-01-14", amount: 5 }]);
+  assert.deepEqual(kotak.map((r) => r.eps), [4.95, 4.49]);
   console.log("valuation check: ok");
 }
 
@@ -236,5 +240,10 @@ import { changeOver, gauge, weekly, type IndexDay } from "../index-history";
   assert.equal(changeOver(holey, 1), null, "no price near the start date: no change shown");
   const w = weekly(days);
   assert.ok(w.length >= 85 && w.length <= 87 && w[w.length - 1] === days[days.length - 1], "one point a week, latest kept");
+}
+{
+  const uni = [{ stock_id: 1, ticker: "JSWSTEEL.NS", name: "JSW Steel Ltd.", market_cap_cr: 1 }] as unknown as StockSnapshot[];
+  const m = findMentions("JSW Steel target 2000, also buy ZZQX", uni);
+  assert.deepEqual([m.found.length, m.unknown], [1, ["ZZQX"]], "JSW is part of JSW Steel, ZZQX is unknown");
 }
 console.log("index history: ok");

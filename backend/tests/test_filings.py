@@ -49,6 +49,24 @@ bank = HEAD + ctx("OneD", "2026-07-01", "2026-09-30") + "".join([
 r = results_from_xbrl(bank.encode())
 assert r["quarter"]["revenue"] == 950 and r["quarter"]["net_income"] == 207 and r["quarter"]["eps"] == 2.07 and r["year"] is None, r
 
+# owners' line filed as 0 while the profit sits in the next line (Nestle, HPCL)
+zero = q4.replace('fact("ProfitOrLossAttributableToOwnersOfParent", "OneD", "300")', "").replace(
+    fact("ProfitOrLossAttributableToOwnersOfParent", "OneD", "300"), fact("ProfitOrLossAttributableToOwnersOfParent", "OneD", "0"))
+assert results_from_xbrl(zero.encode())["quarter"]["net_income"] == 320
+
+# a wrong owners' line (Apar, BEML): EPS 116.37 x 4.02 Cr shares points at the other profit line
+apar = HEAD + ctx("OneD", "2026-04-01", "2026-06-30") + "".join([
+    fact("RevenueFromOperations", "OneD", "65910000000"), fact("ProfitOrLossAttributableToOwnersOfParent", "OneD", "-1385600000"),
+    fact("ProfitLossForPeriod", "OneD", "4674500000"), fact("BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations", "OneD", "116.37"),
+    fact("PaidUpValueOfEquityShareCapital", "OneD", "401700000"), fact("FaceValueOfEquityShareCapital", "OneD", "10"),
+]) + "</xbrli:xbrl>"
+assert results_from_xbrl(apar.encode())["quarter"]["net_income"] == 4674500000
+
+# a finance company: debt includes bonds, subordinated debt and public deposits
+nbfc = q4.replace(fact("BorrowingsCurrent", "OneI", "100") + fact("BorrowingsNoncurrent", "OneI", "250"),
+                  fact("Borrowings", "OneI", "100") + fact("DebtSecurities", "OneI", "200") + fact("SubordinatedLiabilities", "OneI", "5") + fact("Deposits", "OneI", "50"))
+assert results_from_xbrl(nbfc.encode())["year"]["total_debt"] == 355
+
 # an older file whose facts point at contexts it never declares
 broken = HEAD + "".join([
     fact("DateOfStartOfReportingPeriod", "OneD", "2021-01-01"), fact("DateOfEndOfReportingPeriod", "OneD", "2021-03-31"),
@@ -98,7 +116,7 @@ old = [{"toDate": "31-Dec-2024", "consolidated": "Non-Consolidated", "broadCastD
        {"toDate": "31-Dec-2015", "consolidated": "Consolidated", "broadCastDate": "06-Feb-2016 19:20:20", "xbrl": "https://a/ancient.xml"}]
 picks = pick_results(integrated, old, date(2021, 1, 1))
 # the company files consolidated results, so Dec 2024 (standalone only on NSE) is skipped, not mixed in
-assert [(p["period_end"], p["basis"], p["url"]) for p in picks] == [(date(2026, 9, 30), "consolidated", "c2.xml")], picks
+assert [(p["period_end"], p["basis"], p["url"], p["filed_on"]) for p in picks] == [(date(2026, 9, 30), "consolidated", "c2.xml", date(2026, 11, 9))], picks
 # a standalone-only company keeps its standalone filings; the annual feed adds a separate full-year entry
 solo = pick_results([], [{"toDate": "31-Mar-2024", "consolidated": "Non-Consolidated", "broadCastDate": "06-May-2024 19:20:20", "xbrl": "https://a/q4.xml"}],
                     date(2021, 1, 1), [{"toDate": "31-Mar-2024", "consolidated": "Non-Consolidated", "broadCastDate": "06-May-2024 19:20:20", "xbrl": "https://a/fy.xml"}])

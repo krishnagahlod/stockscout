@@ -86,13 +86,19 @@ def _read(xml: bytes):
     return ctx, facts
 
 
-def _first(facts, ctx, names, want):
+def _first(facts, ctx, names, want, skip_zero=False):
+    """First value among `names` in a matching context without dimensions. With skip_zero, a 0 only counts when
+    no later name has a real value (some companies file 0 in the owners' line and the profit in the next one)."""
+    zero = None
     for n in names:
         for cid, v in facts.get(n, []):
             c = ctx.get(cid)
             if c and not c[2] and want(c) and _num(v) is not None:
+                if skip_zero and _num(v) == 0:
+                    zero = 0.0
+                    continue
                 return _num(v)
-    return None
+    return zero
 
 
 def results_from_xbrl(xml: bytes) -> dict | None:
@@ -105,17 +111,23 @@ def results_from_xbrl(xml: bytes) -> dict | None:
     span = lambda lo, hi: (lambda c: c[0] is not None and c[1] == end and lo <= (c[1] - c[0]).days <= hi)
     at_end = lambda c: c[0] is None and c[1] == end
 
+    paid = _first(facts, ctx, ["PaidUpValueOfEquityShareCapital", "PaidUpEquityShareCapital"], lambda c: True)
+    face = _first(facts, ctx, ["FaceValueOfEquityShareCapital"], lambda c: True)
+    shares = paid / face if paid and face else None
+
     def period(test):
-        row = {k: _first(facts, ctx, names, test) for k, names in DURATION.items()}
+        row = {k: _first(facts, ctx, names, test, skip_zero=k in ("revenue", "net_income")) for k, names in DURATION.items()}
+        if shares and row["eps"]:
+            # some companies file a wrong number (or sign) in one profit line; EPS x shares says which line is right
+            cands = [v for n in DURATION["net_income"] for v in [_first(facts, ctx, [n], test)] if v]
+            if cands:
+                row["net_income"] = min(cands, key=lambda v: abs(v - row["eps"] * shares))
         # one-off items: exceptional items plus profit from businesses sold or spun off (e.g. ITC Hotels in 2025)
         disc = row.pop("discontinued")
         if disc:
             row["exceptional"] = (row["exceptional"] or 0) + disc
-        if row["eps"] is None and row["net_income"] is not None:
-            paid = _first(facts, ctx, ["PaidUpValueOfEquityShareCapital", "PaidUpEquityShareCapital"], lambda c: True)
-            face = _first(facts, ctx, ["FaceValueOfEquityShareCapital"], lambda c: True)
-            if paid and face:
-                row["eps"] = round(row["net_income"] / (paid / face), 2)
+        if row["eps"] is None and row["net_income"] is not None and shares:
+            row["eps"] = round(row["net_income"] / shares, 2)
         return row if row["revenue"] is not None or row["net_income"] is not None else None
 
     quarter, year = period(span(80, 100)), period(span(350, 380))
@@ -127,6 +139,11 @@ def results_from_xbrl(xml: bytes) -> dict | None:
             cap, res = _first(facts, ctx, ["Capital", "ShareCapital", "EquityShareCapital"], at_end), _first(facts, ctx, ["ReservesAndSurplus", "OtherEquity"], at_end)
             year["equity"] = cap + res if cap is not None and res is not None else None
         borrow = _first(facts, ctx, ["Borrowings"], at_end)
+        if _first(facts, ctx, ["DebtSecurities"], at_end) is not None:
+            # finance-company format: debt is spread over borrowings, bonds, subordinated debt and public deposits
+            # (banks file differently and their deposits are the business, not borrowing)
+            parts = [_first(facts, ctx, [n], at_end) for n in ("Borrowings", "DebtSecurities", "SubordinatedLiabilities", "Deposits")]
+            borrow = sum(x for x in parts if x is not None)
         if borrow is None:
             parts = [_first(facts, ctx, [n], at_end) for n in ("BorrowingsCurrent", "BorrowingsNoncurrent")]
             borrow = sum(p for p in parts if p is not None) if any(p is not None for p in parts) else None
@@ -200,9 +217,10 @@ def pick_results(integrated: list, old: list, since: date, annual: list = ()) ->
         cons = basis.startswith("consolidated")
         if any_cons and not cons:
             continue
-        key = (_date(when.split(" ")[0]) or date.min, when)
+        filed = _date(when.split(" ")[0])
+        key = (filed or date.min, when)
         if (kind, end) not in best or key > best[(kind, end)][0]:
-            best[(kind, end)] = (key, {"period_end": end, "basis": "consolidated" if cons else "standalone", "url": url})
+            best[(kind, end)] = (key, {"period_end": end, "basis": "consolidated" if cons else "standalone", "url": url, "filed_on": filed})
     return [best[k][1] for k in sorted(best, key=lambda k: (k[1], k[0]))]
 
 
@@ -255,32 +273,88 @@ def _dec(v):
     return Decimal(repr(v)) if isinstance(v, float) else v
 
 
-async def _store_results(db, sid: int, parsed: dict):
+def _result_rows(sid: int, parsed: dict) -> list[dict]:
     rows = []
     for freq, part in (("quarterly", parsed["quarter"]), ("annual", parsed["year"])):
         if part:
-            rows.append({"s": sid, "freq": freq, "pe": parsed["period_end"], "basis": parsed["basis"], "operating_cash_flow": None,
+            rows.append({"s": sid, "freq": freq, "pe": parsed["period_end"], "basis": parsed["basis"], "filed": parsed.get("filed_on"), "operating_cash_flow": None,
                          "total_debt": None, "equity": None, **{k: _dec(v) for k, v in part.items()}})
-    await db.execute(text("""
+    return rows
+
+
+INSERT_RESULTS = text("""
         insert into stock_financials (stock_id, freq, period_end, revenue, net_income, eps, pbt, exceptional, operating_cash_flow,
-          total_debt, equity, basis, source, updated_at)
-        values (:s, :freq, :pe, :revenue, :net_income, :eps, :pbt, :exceptional, :operating_cash_flow, :total_debt, :equity, :basis, 'nse', now())
+          total_debt, equity, basis, filed_on, source, updated_at)
+        values (:s, :freq, :pe, :revenue, :net_income, :eps, :pbt, :exceptional, :operating_cash_flow, :total_debt, :equity, :basis, :filed, 'nse', now())
         on conflict (stock_id, freq, period_end) do update set revenue = excluded.revenue, net_income = excluded.net_income,
           eps = excluded.eps, pbt = excluded.pbt, exceptional = excluded.exceptional,
           operating_cash_flow = coalesce(excluded.operating_cash_flow, stock_financials.operating_cash_flow),
           total_debt = coalesce(excluded.total_debt, stock_financials.total_debt),
-          equity = coalesce(excluded.equity, stock_financials.equity), basis = excluded.basis, source = 'nse', updated_at = now()"""), rows)
+          equity = coalesce(excluded.equity, stock_financials.equity), filed_on = excluded.filed_on, basis = excluded.basis, source = 'nse', updated_at = now()""")
 
-
-async def _store_ownership(db, sid: int, as_of: date, row: dict):
-    await db.execute(text("""
+INSERT_OWNERSHIP = text("""
         insert into stock_ownership (stock_id, as_of, insiders, institutions, promoter, fii, dii, mutual_funds, retail, government, pledged, source)
         values (:s, :d, :promoter, :inst, :promoter, :fii, :dii, :mutual_funds, :retail, :government, :pledged, 'nse')
         on conflict (stock_id, as_of) do update set insiders = excluded.insiders, institutions = excluded.institutions,
           promoter = excluded.promoter, fii = excluded.fii, dii = excluded.dii, mutual_funds = excluded.mutual_funds,
-          retail = excluded.retail, government = excluded.government, pledged = excluded.pledged, source = 'nse'"""),
-        {"s": sid, "d": as_of, "inst": _dec(round((row["fii"] or 0) + (row["dii"] or 0), 6)) if row["fii"] is not None or row["dii"] is not None else None,
-         **{k: _dec(v) for k, v in row.items()}})
+          retail = excluded.retail, government = excluded.government, pledged = excluded.pledged, source = 'nse'""")
+
+
+def _ownership_row(sid: int, as_of: date, row: dict) -> dict:
+    inst = round((row["fii"] or 0) + (row["dii"] or 0), 6) if row["fii"] is not None or row["dii"] is not None else None
+    return {"s": sid, "d": as_of, "inst": _dec(inst), **{k: _dec(v) for k, v in row.items()}}
+
+
+async def _download(http: httpx.AsyncClient, sem: asyncio.Semaphore, url: str):
+    """File bytes, None when NSE lists a file it never uploaded (404), or the exception."""
+    async with sem:
+        try:
+            r = await http.get(url)
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            return r.content
+        except Exception as e:
+            return e
+
+
+# Profit / EPS gives the share count, which within a company only moves with splits (adjusted here) and small issues
+# or buybacks. Compared with the company's latest four quarters:
+#  - off by 20x or more, or profit and EPS of opposite sign: the amounts were filed wrongly (Coromandel's Mar 2026
+#    quarter was filed 100x too small). The row becomes 'nse_unusual': kept, but left out of tables and ratios.
+#  - off by 5x to 20x: the amounts are fine but the EPS can't be lined up with today's shares (usually a split or
+#    bonus our events list misses, e.g. Bajaj Finance 2025), so only that EPS is cleared.
+# A revised filing arrives under a new URL, is stored as 'nse' again and is re-checked.
+CHECK_SHARES = """
+    with sp as (
+      select f.stock_id, f.freq, f.period_end,
+             f.net_income / (f.eps / coalesce((
+               select exp(sum(ln(e.amount))) from stock_events e
+               where e.stock_id = f.stock_id and e.kind = 'split' and e.amount > 0
+                 and e.event_date > coalesce(f.filed_on, f.period_end + 45)), 1)) as shares
+      from stock_financials f
+      where f.source = 'nse' and abs(f.eps) >= 1 and f.net_income <> 0
+    ),
+    recent as (
+      select stock_id, shares, row_number() over (partition by stock_id order by period_end desc) as rn
+      from sp where freq = 'quarterly'
+    ),
+    ref as (
+      select stock_id, percentile_cont(0.5) within group (order by shares) as m
+      from recent where rn <= 4 and shares > 0 group by stock_id having count(*) >= 2
+    ),
+    bad as (
+      select sp.*, sp.shares / ref.m as ratio from sp join ref on ref.stock_id = sp.stock_id
+    )
+"""
+FLAG_UNUSUAL = text(CHECK_SHARES + """
+    update stock_financials f set source = 'nse_unusual' from bad
+    where f.stock_id = bad.stock_id and f.freq = bad.freq and f.period_end = bad.period_end and f.source = 'nse'
+      and (bad.ratio <= 0 or bad.ratio not between 0.05 and 20)""")
+CLEAR_EPS = text(CHECK_SHARES + """
+    update stock_financials f set eps = null from bad
+    where f.stock_id = bad.stock_id and f.freq = bad.freq and f.period_end = bad.period_end and f.source = 'nse'
+      and bad.ratio between 0.05 and 20 and bad.ratio not between 0.2 and 5""")
 
 
 async def sync_filings(db, years: int = 5, limit: int | None = None, pause: float = 0.4) -> dict:
@@ -290,6 +364,7 @@ async def sync_filings(db, years: int = 5, limit: int | None = None, pause: floa
         stocks = stocks[:limit]
     done = {u for (u,) in (await db.execute(text("select url from filings where status in ('ok', 'empty')"))).all()}
     since = date.today() - timedelta(days=365 * years + 100)
+    sem = asyncio.Semaphore(8)  # parallel downloads from nsearchives (a plain file server)
     nse, stats = Nse(), {"companies": 0, "results": 0, "shareholding": 0, "errors": 0, "listing_failed": 0}
     async with httpx.AsyncClient(timeout=60, headers=HEADERS, follow_redirects=True) as http:
         try:
@@ -311,40 +386,50 @@ async def sync_filings(db, years: int = 5, limit: int | None = None, pause: floa
                     continue
                 todo = [("results", f) for f in pick_results(integrated, old if isinstance(old, list) else [], since, annual if isinstance(annual, list) else [])] + \
                        [("shareholding", f) for f in pick_shareholding(shp if isinstance(shp, list) else [], since)]
-                for kind, f in todo:
-                    if f["url"] in done:
-                        continue
-                    status = "empty"
+                todo = [(k, f) for k, f in todo if f["url"] not in done]
+                bodies = await asyncio.gather(*(_download(http, sem, f["url"]) for _, f in todo))
+                results, owners, marks = [], [], []
+                for (kind, f), body in zip(todo, bodies):
+                    status = "empty"  # listed but never uploaded (404) or nothing usable: not retried
                     try:
-                        r = await http.get(f["url"])
-                        if r.status_code == 404:  # listed but never uploaded; don't retry it every week
-                            raise LookupError("404")
-                        r.raise_for_status()
-                        if kind == "results":
-                            parsed = results_from_xbrl(r.content)
+                        if isinstance(body, Exception):
+                            raise body
+                        if body is not None and kind == "results":
+                            parsed = results_from_xbrl(body)
                             if parsed:
-                                await _store_results(db, sid, {**parsed, "period_end": parsed["period_end"] or f["period_end"], "basis": parsed["basis"] or f["basis"]})
+                                results += _result_rows(sid, {**parsed, "period_end": parsed["period_end"] or f["period_end"],
+                                                              "basis": parsed["basis"] or f["basis"], "filed_on": f.get("filed_on")})
                                 status, stats["results"] = "ok", stats["results"] + 1
-                        else:
-                            row = ownership_from_xbrl(r.content)
+                        elif body is not None:
+                            row = ownership_from_xbrl(body)
                             if row:
-                                await _store_ownership(db, sid, f["period_end"], row)
+                                owners.append(_ownership_row(sid, f["period_end"], row))
                                 status, stats["shareholding"] = "ok", stats["shareholding"] + 1
-                    except LookupError:
-                        status = "empty"
                     except Exception as e:
                         logger.warning(f"filing {ticker} {f['url']}: {e}")
-                        await db.rollback()
                         status, stats["errors"] = "error", stats["errors"] + 1
-                    await db.execute(text("""
-                        insert into filings (url, stock_id, kind, period_end, basis, status) values (:u, :s, :k, :d, :b, :st)
-                        on conflict (url) do update set status = excluded.status, parsed_at = now()"""),
-                        {"u": f["url"], "s": sid, "k": kind, "d": f["period_end"], "b": f.get("basis"), "st": status})
+                    marks.append({"u": f["url"], "s": sid, "k": kind, "d": f["period_end"], "b": f.get("basis"), "st": status})
+                # one batch per company, oldest first so later filings win; if it fails nothing is marked done
+                try:
+                    if results:
+                        await db.execute(INSERT_RESULTS, results)
+                    if owners:
+                        await db.execute(INSERT_OWNERSHIP, owners)
+                    if marks:
+                        await db.execute(text("""
+                            insert into filings (url, stock_id, kind, period_end, basis, status) values (:u, :s, :k, :d, :b, :st)
+                            on conflict (url) do update set status = excluded.status, parsed_at = now()"""), marks)
                     await db.commit()
-                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.warning(f"filings {ticker}: could not store: {e}")
+                    await db.rollback()
+                    stats["errors"] += 1
                 stats["companies"] += 1
                 if i % 50 == 0:
                     logger.info(f"filings: {i}/{len(stocks)} {stats}")
         finally:
             await nse.close()
+    stats["unusual"] = (await db.execute(FLAG_UNUSUAL)).rowcount
+    stats["eps_cleared"] = (await db.execute(CLEAR_EPS)).rowcount
+    await db.commit()
     return stats

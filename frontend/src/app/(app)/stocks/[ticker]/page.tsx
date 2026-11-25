@@ -54,7 +54,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
     nifty ? getPriceHistory(nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
     supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
-    supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt, exceptional, source").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
+    supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt, exceptional, source, filed_on").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
     supabase.from("stock_ownership").select("as_of, insiders, institutions, source, promoter, fii, dii, mutual_funds, retail, pledged").eq("stock_id", stock.stock_id).order("as_of", { ascending: true }),
   ]);
   const events = eventSummary((eventRows ?? []) as StockEvent[], new Date().toISOString().slice(0, 10));
@@ -67,7 +67,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   const oneYearWindows = rolling(history, 1);
   const trend = trendSince(history, 50);
 
-  type Fin = { freq: string; period_end: string; revenue: number | null; net_income: number | null; eps: number | null; operating_cash_flow: number | null; total_debt: number | null; exceptional: number | null; source: string };
+  type Fin = { freq: string; period_end: string; revenue: number | null; net_income: number | null; eps: number | null; operating_cash_flow: number | null; total_debt: number | null; exceptional: number | null; source: string; filed_on: string | null };
   // EPS in filings is as reported then; divide by later splits and bonus issues so years (and the P/E band) compare with today's prices
   const splits = ((eventRows ?? []) as StockEvent[]).filter((e) => e.kind === "split");
   const allFins = ((finRows ?? []) as Fin[]).map((f) => (f.source === "nse" ? adjustForSplits([f], splits)[0] : f));
@@ -323,6 +323,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
 
       <div className="space-y-2">
         <Sources ids={fromFilings || holder ? ["nse", "yahooPrices", "nseFilings", "yahooCompany", "own"] : ["nse", "yahooPrices", "yahooCompany", "own"]} asOf={stock.price_date} />
+        {!isFund && stock.ratios_source === "yahoo" && <p className="text-xs text-slate-500">This company&apos;s P/E, ROE and other ratios are from Yahoo Finance: its recent filings on NSE are incomplete.</p>}
         <p className="text-xs text-slate-400">Information to help you research, not advice to buy or sell. Past numbers don&apos;t promise future returns.</p>
       </div>
     </div>

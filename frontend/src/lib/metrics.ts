@@ -31,6 +31,8 @@ export type StockSnapshot = {
   volatility_30d: number | null;
   max_drawdown_1y: number | null;
   momentum_12m: number | null;
+  /** where P/E, P/B, ROE, margin and debt come from: the company's NSE filings, or Yahoo's summary */
+  ratios_source?: "filings" | "yahoo" | null;
 };
 
 export type MetricKey =

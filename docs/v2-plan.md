@@ -35,8 +35,29 @@ Phase 3, started 25 Nov 2026 (sources and how data is shown):
 - [x] Market today: the main indices (last day, 1 year, 5 years a year) and "what the market costs against its own past" (Nifty 50 P/E chart with its middle line, P/B, dividend yield, VIX).
 - [x] Sources: every data page ends with a line naming its sources and data date; /sources lists each source, how often it updates, its limits and our nightly checks.
 - [x] Supabase load: market data is cached for an hour in Vercel (one database read an hour instead of one per page view).
-- [ ] Company results and ownership from filings instead of Yahoo: parse NSE/BSE XBRL ourselves, or a licensed vendor (decision needed)
-- [ ] Pledged shares and fund flows (FII/DII) from NSE reports
+- [x] Company results, ownership and pledges from NSE's XBRL filings, parsed ourselves (decided 25 Nov 2026: build it, free). See "Filings" below.
+- [x] Ratios (P/E, P/B, ROE, profit margin, debt to equity, market value) worked out from the filings, Yahoo as fallback
+- [x] Tip checker flags promoter pledges (amber from 5%, red from 25% of the promoter's shares)
+- [ ] Fund flows (FII/DII buying and selling by day) from NSE reports
+
+### Filings: how they're read (backend/app/services/filings_service.py, Saturday Step 2d)
+
+- **Listings** come from NSE's website API, which blocks plain scripts; we use `curl_cffi` (a browser-like client). A test run confirmed GitHub's servers can reach it. **Files** are plain downloads from nsearchives, 8 at a time.
+- **Three feeds:** "Integrated Filing - Financials" (Mar 2025 onwards), the older quarterly results feed, and the annual feed (2023 to early 2025 the full-year numbers are only there). Plus the quarterly shareholding pattern.
+- **Consolidated only** when a company files group results; a period with only a standalone filing on NSE is skipped, never mixed in.
+- **Formats handled:** companies, banks (interest earned, capital plus reserves), insurers, NBFCs (debt includes bonds, subordinated debt and deposits); older files that point at undeclared contexts or declare the full year with the quarter's dates (the stated reporting-period dates win).
+- **EPS** is stored as filed with the filing date; the app divides by splits and bonus issues after the filing date (a split before it is already in the filed EPS, e.g. Kotak's Jan 2026 split).
+- **One-off items** (exceptional items plus profit from discontinued businesses, e.g. ITC Hotels, HUL ice cream) are stored separately, marked in the results tables and taken out of the profit used for P/E.
+- **Ratios** in `stock_snapshot`: market value = price x share count implied by the latest quarter; P/E on the last four consecutive quarters (must end within 200 days); ROE, P/B, debt to equity against the latest yearly balance sheet. Used only when the share count is within 1.5x of Yahoo's; `ratios_source` says which applies.
+- **Checked against published results:** Infosys FY24 sales ₹1,53,670 Cr and profit ₹26,233 Cr; HDFC Bank FY24 profit ₹64,062 Cr; Reliance FY24 profit ₹69,621 Cr; ITC FY21 ₹53,155 Cr and ₹13,161 Cr; JSW Steel promoter 44.3% with 12.3% pledged.
+- Parsed files are recorded in `filings`, so each weekly run only reads new ones.
+- **Checks against bad filings** (some companies file wrong numbers):
+  - When profit lines disagree, EPS × share count picks the right one (Apar, BEML).
+  - A 0 in the owners' line falls through to the next line (Nestlé, HPCL).
+  - After each run, every period's implied share count (profit ÷ EPS) is compared with the company's latest four quarters:
+    - Off by 20× or more, or profit and EPS of opposite sign: the row is set aside as `nse_unusual` (29 rows, e.g. Coromandel Mar 2026 filed 100× too small, Kaynes FY23).
+    - Off by 5× to 20×: only that EPS is cleared (e.g. Bajaj Finance before its 2025 bonus and split).
+- **First full load (25 Nov 2026):** 500 companies, 10,136 results filings and 6,586 shareholding filings, 0 errors. Results for 488 companies, ownership for 491; ratios from filings for 454, Yahoo for 46. Database 289 MB.
 - [ ] Legal opinion, NSE display rights, RA registration, Pro mode, community, phone app (unchanged)
 
 ### Supabase: sharing one account with the intern prep project (checked 25 Nov 2026)

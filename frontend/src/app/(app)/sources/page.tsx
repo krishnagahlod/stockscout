@@ -68,7 +68,7 @@ export default async function SourcesPage() {
           <li><b>Two sources.</b> NSE&apos;s own file comes first. If it&apos;s missing for a day, Yahoo Finance fills in.</li>
         </ul>
         <p className="mt-4 text-sm text-slate-600">
-          Results and owners come from the files companies submit to NSE, read by us every Saturday. Ratios such as P/E and ROE still come from Yahoo&apos;s summary. Before a big decision, read the company&apos;s full results on{" "}
+          Results, owners and ratios such as P/E and ROE come from the files companies submit to NSE, read by us every Saturday. Where a company&apos;s filings are incomplete, Yahoo&apos;s summary fills in, and the company&apos;s page says so. Before a big decision, read the company&apos;s full results on{" "}
           <a href="https://www.nseindia.com/companies-listing/corporate-filings-financial-results" target="_blank" rel="noreferrer" className="text-indigo-600 underline">NSE&apos;s filings page</a>.
           New to these words? <Link href="/learn" className="text-indigo-600 underline">Start with the 2-minute lessons</Link>.
         </p>

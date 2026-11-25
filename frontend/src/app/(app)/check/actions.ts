@@ -25,8 +25,12 @@ export async function checkTip(_prev: CheckState, formData: FormData): Promise<C
   const { found, unknown } = findMentions(text, universe);
   const companies = await Promise.all(
     found.slice(0, MAX_COMPANIES).map(async (s) => {
-      const history = await getPriceHistory(s.stock_id, 1);
-      const { flags, fine } = tipFlags(s, universe, history);
+      const [history, { data: own }] = await Promise.all([
+        getPriceHistory(s.stock_id, 1),
+        supabase.from("stock_ownership").select("pledged").eq("stock_id", s.stock_id).eq("source", "nse").order("as_of", { ascending: false }).limit(1),
+      ]);
+      const pledged = own?.[0]?.pledged;
+      const { flags, fine } = tipFlags(s, universe, history, pledged == null ? null : Number(pledged));
       return {
         ticker: shortTicker(s.ticker), name: s.name, sector: s.sector, price: s.price, priceDate: s.price_date,
         marketCap: s.market_cap_cr, flags, fine,

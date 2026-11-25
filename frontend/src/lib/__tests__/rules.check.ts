@@ -114,6 +114,9 @@ import { findMentions, hypeWords, tipFlags } from "../tips";
   assert.ok(tipFlags(u[2], u, hist).flags.some((f) => f.text.includes("day-to-day business lost money")), "one-off profit");
   const lowDeliv = hist.map((p, i) => ({ ...p, delivery_pct: i > 64 ? 18 : 55 }));
   assert.ok(tipFlags(u[1], u, lowDeliv).flags.some((f) => f.text.includes("same-day trading")), "spike on low delivery");
+  assert.equal(tipFlags(u[1], u, hist, 0.4).flags.find((f) => f.text.includes("pledged"))?.level, "red", "heavy pledge is red");
+  assert.equal(tipFlags(u[1], u, hist, 0.1).flags.find((f) => f.text.includes("pledged"))?.level, "amber", "some pledge is amber");
+  assert.ok(!tipFlags(u[1], u, hist, 0.01).flags.some((f) => f.text.includes("pledged")), "a tiny pledge isn't flagged");
   assert.ok(!tipFlags(u[1], u, hist.map((p) => ({ ...p, delivery_pct: 55 }))).flags.some((f) => f.text.includes("same-day")), "normal delivery: no flag");
   console.log("tips check: ok");
 }
@@ -198,7 +201,7 @@ import { taxIfSoldToday } from "../tax";
 }
 
 // P/E against its own past
-import { peBand } from "../valuation";
+import { adjustForSplits, peBand } from "../valuation";
 {
   // 24 month-ends at price 100, then 12 at price 200; EPS 10 known from 2024-05-30, EPS 20 from 2025-05-30
   const months = Array.from({ length: 36 }, (_, i) => { const y = 2024 + Math.floor(i / 12); const m = (i % 12) + 1; return { date: `${y}-${String(m).padStart(2, "0")}-28`, close: i < 24 ? 100 : 200 }; });
@@ -208,6 +211,10 @@ import { peBand } from "../valuation";
   assert.equal(b.high, 10);
   assert.ok(b.months >= 12);
   assert.equal(peBand(months.slice(0, 8), [{ period_end: "2024-03-31", eps: 10 }]), null, "too little history");
+  // HDFC Bank-style 1:1 bonus in Aug 2025: FY25 EPS 92.81 as filed becomes 46.41; FY26 (after the bonus) stays
+  const adj = adjustForSplits([{ period_end: "2026-03-31", eps: 49.5 }, { period_end: "2025-03-31", eps: 92.81 }, { period_end: "2024-03-31", eps: null }],
+    [{ event_date: "2025-08-26", amount: 2 }, { event_date: "2019-01-01", amount: 5 }]);
+  assert.deepEqual(adj.map((r) => r.eps), [49.5, 46.41, null]);
   console.log("valuation check: ok");
 }
 

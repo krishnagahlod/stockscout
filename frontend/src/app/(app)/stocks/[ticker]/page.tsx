@@ -7,7 +7,7 @@ import { dayChange, yearChange, type MetricKey } from "@/lib/metrics";
 import { businessVerdict, priceVerdict, trendVerdict, type Verdict } from "@/lib/glance";
 import { monthsBetween, rolling, trendSince, worstFall } from "@/lib/risk";
 import { eventSummary, type StockEvent } from "@/lib/events";
-import { peBand } from "@/lib/valuation";
+import { adjustForSplits, peBand } from "@/lib/valuation";
 import { crores, niceDate, pct, rupees, shortTicker } from "@/lib/format";
 import { Change, MetricRow, Panel, Sources } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,8 @@ const DETAIL_GROUPS: { title: string; metrics: MetricKey[]; funds?: boolean }[] 
   { title: "How has the price behaved?", metrics: ["momentum_12m", "volatility_30d", "max_drawdown_1y", "beta", "rsi_14"], funds: true },
 ];
 
+const OWNER_ROWS = [["Promoter group", "promoter"], ["Foreign institutions", "fii"], ["Indian institutions", "dii"], ["of which mutual funds", "mutual_funds"], ["Individuals", "retail"], ["Promoter shares pledged", "pledged"]] as const;
+
 const FUND_TEXT: Record<string, string> = {
   Index: "An index is a list that tracks a group of companies. You can't buy it directly; index funds and ETFs follow it for you.",
   ETF: "An ETF (exchange-traded fund) holds a basket of investments and trades like a share in your broker app. Before buying, check its yearly fee (expense ratio) on the fund's factsheet.",
@@ -52,8 +54,8 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
     nifty ? getPriceHistory(nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
     supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
-    supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
-    supabase.from("stock_ownership").select("as_of, insiders, institutions").eq("stock_id", stock.stock_id).order("as_of", { ascending: true }),
+    supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt, exceptional, source").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
+    supabase.from("stock_ownership").select("as_of, insiders, institutions, source, promoter, fii, dii, mutual_funds, retail, pledged").eq("stock_id", stock.stock_id).order("as_of", { ascending: true }),
   ]);
   const events = eventSummary((eventRows ?? []) as StockEvent[], new Date().toISOString().slice(0, 10));
 
@@ -65,18 +67,28 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   const oneYearWindows = rolling(history, 1);
   const trend = trendSince(history, 50);
 
-  type Fin = { freq: string; period_end: string; revenue: number | null; net_income: number | null; eps: number | null; operating_cash_flow: number | null; total_debt: number | null };
-  const fins = (finRows ?? []) as Fin[];
-  const annual = fins.filter((f) => f.freq === "annual").slice(0, 4);
+  type Fin = { freq: string; period_end: string; revenue: number | null; net_income: number | null; eps: number | null; operating_cash_flow: number | null; total_debt: number | null; exceptional: number | null; source: string };
+  // EPS in filings is as reported then; divide by later splits and bonus issues so years (and the P/E band) compare with today's prices
+  const splits = ((eventRows ?? []) as StockEvent[]).filter((e) => e.kind === "split");
+  const allFins = ((finRows ?? []) as Fin[]).map((f) => (f.source === "nse" ? adjustForSplits([f], splits)[0] : f));
+  // once a company has filings, show only those: Yahoo defines some lines differently (banks' sales), so mixing misleads
+  const fromFilings = allFins.some((f) => f.source === "nse");
+  const fins = fromFilings ? allFins.filter((f) => f.source === "nse") : allFins;
+  const annual = fins.filter((f) => f.freq === "annual").slice(0, 5);
   const quarters = fins.filter((f) => f.freq === "quarterly").slice(0, 6);
+  const oneOff = (f: Fin) => f.exceptional != null && f.net_income != null && Math.abs(Number(f.exceptional)) >= 0.1 * Math.abs(Number(f.net_income)) && Math.abs(Number(f.exceptional)) >= 1e8;
   const band = isFund ? null : peBand(history, annual.map((a) => ({ period_end: a.period_end, eps: a.eps == null ? null : Number(a.eps) })));
   const priceCard = priceVerdict(stock, universe);
   if (band && stock.pe && stock.pe > 0) {
     const pos = stock.pe < band.mid * 0.9 ? "below" : stock.pe > band.mid * 1.1 ? "above" : "close to";
     priceCard.text += ` Against its own past: P/E ranged ${band.low.toFixed(0)} to ${band.high.toFixed(0)} over the last ${Math.round(band.months / 12)} years, so today's is ${pos} its middle (${band.mid.toFixed(0)}).`;
   }
-  const owners = (ownRows ?? []) as { as_of: string; insiders: number | null; institutions: number | null }[];
+  type Own = { as_of: string; insiders: number | null; institutions: number | null; source: string; promoter: number | null; fii: number | null; dii: number | null; mutual_funds: number | null; retail: number | null; pledged: number | null };
+  const owners = (ownRows ?? []) as Own[];
+  const filed = owners.filter((o) => o.source === "nse").slice(-5);
   const own = owners[owners.length - 1];
+  const holder = filed[filed.length - 1];
+  const share = (v: number | null) => (v == null ? "—" : pct(Number(v), 1));
   const cr = (v: number | null) => (v == null ? "—" : crores(Number(v) / 1e7));
   const delivVals = history.slice(-20).map((p) => p.delivery_pct).filter((v): v is number => v != null).map(Number);
   const deliv = !isFund && delivVals.length >= 5 ? { last: delivVals[delivVals.length - 1], avg: delivVals.reduce((a, v) => a + v, 0) / delivVals.length } : null;
@@ -233,7 +245,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
                     <tr key={a.period_end} className="border-b border-slate-50">
                       <td className="py-2">{niceDate(a.period_end)}</td>
                       <td className="py-2 text-right tabular-nums">{cr(a.revenue)}</td>
-                      <td className="py-2 text-right tabular-nums">{cr(a.net_income)}</td>
+                      <td className="py-2 text-right tabular-nums">{cr(a.net_income)}{oneOff(a) && <sup className="ml-0.5 text-amber-600">*</sup>}</td>
                       <td className="py-2 text-right tabular-nums">{a.revenue && a.net_income != null ? pct(Number(a.net_income) / Number(a.revenue), 0) : "—"}</td>
                       <td className="py-2 text-right tabular-nums">{a.eps == null ? "—" : `₹${Number(a.eps).toFixed(2)}`}</td>
                       <td className="py-2 text-right tabular-nums">{cr(a.operating_cash_flow)}</td>
@@ -257,7 +269,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
                       <tr key={q.period_end} className="border-b border-slate-50">
                         <td className="py-2">{niceDate(q.period_end)}</td>
                         <td className="py-2 text-right tabular-nums">{cr(q.revenue)}{yoy(q.revenue, prior?.revenue)}</td>
-                        <td className="py-2 text-right tabular-nums">{cr(q.net_income)}{prior?.net_income && Number(prior.net_income) > 0 ? yoy(q.net_income, prior.net_income) : null}</td>
+                        <td className="py-2 text-right tabular-nums">{cr(q.net_income)}{oneOff(q) && <sup className="ml-0.5 text-amber-600">*</sup>}{prior?.net_income && Number(prior.net_income) > 0 ? yoy(q.net_income, prior.net_income) : null}</td>
                       </tr>
                     );
                   })}
@@ -265,14 +277,40 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
               </table>
             </div>
           )}
-          {own && (
+          {holder ? (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-slate-500">Who owns it, from the company&apos;s shareholding filings</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                {Number(holder.promoter) > 0 ? <>The promoter group (the founders or parent company) holds <strong className="font-semibold">{share(holder.promoter)}</strong>. </> : <>There is no promoter group: the company is owned entirely by institutions and the public. </>}
+                {Number(holder.promoter) > 0 && holder.pledged != null && (Number(holder.pledged) > 0.001
+                  ? <>They have pledged <strong className="font-semibold text-amber-700">{share(holder.pledged)}</strong> of their own shares as security for loans. If the price falls far, lenders can sell those shares, which can push it down further.</>
+                  : <>None of their shares are pledged for loans.</>)}
+              </p>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-slate-100 text-left text-slate-500"><th scope="col" className="py-2 font-medium">Share of the company</th>{filed.map((o) => <th key={o.as_of} scope="col" className="py-2 text-right font-medium">{niceDate(o.as_of)}</th>)}</tr></thead>
+                  <tbody>
+                    {OWNER_ROWS.map(([label, k]) => (
+                      <tr key={k} className="border-b border-slate-50">
+                        <th scope="row" className={k === "mutual_funds" ? "py-2 pl-4 text-left font-normal text-slate-500" : "py-2 text-left font-normal"}>{label}</th>
+                        {filed.map((o) => <td key={o.as_of} className="py-2 text-right tabular-nums">{share(o[k])}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : own && (
             <p className="mt-5 text-sm leading-relaxed text-slate-700">
               <strong className="font-semibold">Who owns it:</strong> insiders, mostly the promoter group, hold {pct(own.insiders == null ? null : Number(own.insiders), 0)}; institutions such as mutual funds, insurers and foreign investors hold {pct(own.institutions == null ? null : Number(own.institutions), 0)}.
               {owners.length > 1 && owners[0].insiders != null && own.insiders != null && Math.abs(Number(own.insiders) - Number(owners[0].insiders)) >= 0.005 && <> Insiders&apos; share has {Number(own.insiders) > Number(owners[0].insiders) ? "risen" : "fallen"} from {pct(Number(owners[0].insiders), 0)} since {niceDate(owners[0].as_of)}.</>}
-              <span className="block text-xs text-slate-500">Pledged shares aren&apos;t shown yet; they need NSE&apos;s quarterly filings.</span>
             </p>
           )}
-          <p className="mt-3 text-xs text-slate-500">Figures from Yahoo Finance; ₹ Cr is crores (1 Cr = ₹1,00,00,000).</p>
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+            {fromFilings ? <>Figures as the company filed them with NSE, for the whole group where it files group results.</> : <>Figures from Yahoo Finance.</>}
+            {[...annual, ...quarters].some(oneOff) && <> * Includes one-off items, such as a business sold or a one-time charge, worth at least a tenth of the profit.</>}
+            {fromFilings && <> EPS is adjusted for later splits and bonus issues.</>} ₹ Cr is crores (1 Cr = ₹1,00,00,000).
+          </p>
         </Panel>
       )}
 
@@ -284,7 +322,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
       )}
 
       <div className="space-y-2">
-        <Sources ids={["nse", "yahooPrices", "yahooCompany", "own"]} asOf={stock.price_date} />
+        <Sources ids={fromFilings || holder ? ["nse", "yahooPrices", "nseFilings", "yahooCompany", "own"] : ["nse", "yahooPrices", "yahooCompany", "own"]} asOf={stock.price_date} />
         <p className="text-xs text-slate-400">Information to help you research, not advice to buy or sell. Past numbers don&apos;t promise future returns.</p>
       </div>
     </div>

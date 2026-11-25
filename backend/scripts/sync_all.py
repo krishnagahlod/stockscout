@@ -58,6 +58,13 @@ async def sync_everything():
             except Exception as e:
                 logger.error(f"Error during financials sync: {e}")
                 await db.rollback()
+            try:
+                # after Yahoo, so the filings win: Yahoo never overwrites a row parsed from a filing
+                from app.services.filings_service import sync_filings
+                logger.info(f"Step 2d: Results and shareholding from NSE filings: {await sync_filings(db)}")
+            except Exception as e:
+                logger.error(f"Error during filings sync: {e}")
+                await db.rollback()
             
         try:
             logger.info("Step 3: Recomputing technical features...")

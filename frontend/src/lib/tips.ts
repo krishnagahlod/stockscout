@@ -82,9 +82,12 @@ const p0 = (x: number) => `${Math.round(Math.abs(x) * 100)}%`;
 const isLender = (s: StockSnapshot) => s.sector === "Financial Services";
 
 /** Red flags and reassuring facts for one company, from our own numbers only. */
-export function tipFlags(s: StockSnapshot, universe: StockSnapshot[], history: (Point & { delivery_pct?: number | null })[]): { flags: Flag[]; fine: string[] } {
+export function tipFlags(s: StockSnapshot, universe: StockSnapshot[], history: (Point & { delivery_pct?: number | null })[], pledged: number | null = null): { flags: Flag[]; fine: string[] } {
   const flags: Flag[] = [];
   const fine: string[] = [];
+  // pledged: fraction of the promoter group's own shares pledged for loans, from the latest shareholding filing
+  if (pledged != null && pledged >= 0.25) flags.push({ level: "red", text: `The promoter group has pledged ${p0(pledged)} of its shares for loans. If the price falls, lenders can sell them and push it down further.` });
+  else if (pledged != null && pledged >= 0.05) flags.push({ level: "amber", text: `The promoter group has pledged ${p0(pledged)} of its shares for loans.` });
   const nums = (pick: (u: StockSnapshot) => number | null) => universe.map(pick).filter((x): x is number => x != null);
 
   if (s.market_cap_cr != null) {

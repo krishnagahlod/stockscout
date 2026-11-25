@@ -9,6 +9,7 @@ yfinance>=0.2.40
 pandas>=2.2.0
 numpy>=1.26.0
 httpx>=0.27.0
+curl_cffi>=0.7  # NSE website API (filing listings) needs a browser-like client
 python-dotenv>=1.0.0
 loguru>=0.7.0
 supabase>=2.7.4

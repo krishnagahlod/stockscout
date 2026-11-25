@@ -1,4 +1,5 @@
-"""Weekly from Yahoo: yearly and quarterly results, and who owns the company (insiders vs institutions)."""
+"""Weekly from Yahoo: yearly and quarterly results, and who owns the company (insiders vs institutions).
+Fallback only: rows parsed from NSE filings (source = 'nse', filings_service.py) are never overwritten."""
 import asyncio
 import math
 from datetime import date
@@ -79,7 +80,8 @@ async def sync_financials(db, pause: float = 0.3) -> dict:
                 on conflict (stock_id, freq, period_end) do update set revenue = excluded.revenue, net_income = excluded.net_income,
                   eps = excluded.eps, operating_cash_flow = coalesce(excluded.operating_cash_flow, stock_financials.operating_cash_flow),
                   total_debt = coalesce(excluded.total_debt, stock_financials.total_debt), equity = coalesce(excluded.equity, stock_financials.equity),
-                  updated_at = now()"""), [{"s": sid, **r} for r in rows])
+                  updated_at = now()
+                where stock_financials.source = 'yahoo'"""), [{"s": sid, **r} for r in rows])
             n_fin += len(rows)
         if own:
             await db.execute(text("""

@@ -7,7 +7,7 @@ import { PageTitle, Panel } from "@/components/kit";
 
 export const metadata = { title: "Where our numbers come from | StockScout" };
 
-const ORDER: SourceId[] = ["nse", "nseIndex", "amfi", "yahooCompany", "yahooPrices", "mfapi", "own"];
+const ORDER: SourceId[] = ["nse", "nseIndex", "nseFilings", "amfi", "yahooCompany", "yahooPrices", "mfapi", "own"];
 
 export default async function SourcesPage() {
   const [universe, nifty, { data: fund }] = await Promise.all([
@@ -68,7 +68,7 @@ export default async function SourcesPage() {
           <li><b>Two sources.</b> NSE&apos;s own file comes first. If it&apos;s missing for a day, Yahoo Finance fills in.</li>
         </ul>
         <p className="mt-4 text-sm text-slate-600">
-          Company numbers come from a summary, not the filings. Before a big decision, open the company&apos;s latest results on{" "}
+          Results and owners come from the files companies submit to NSE, read by us every Saturday. Ratios such as P/E and ROE still come from Yahoo&apos;s summary. Before a big decision, read the company&apos;s full results on{" "}
           <a href="https://www.nseindia.com/companies-listing/corporate-filings-financial-results" target="_blank" rel="noreferrer" className="text-indigo-600 underline">NSE&apos;s filings page</a>.
           New to these words? <Link href="/learn" className="text-indigo-600 underline">Start with the 2-minute lessons</Link>.
         </p>

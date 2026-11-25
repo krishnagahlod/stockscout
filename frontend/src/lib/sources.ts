@@ -1,5 +1,5 @@
 // Where each kind of number comes from. Shown under data panels and in full on /sources.
-export type SourceId = "nse" | "nseIndex" | "yahooPrices" | "yahooCompany" | "amfi" | "mfapi" | "own";
+export type SourceId = "nse" | "nseIndex" | "nseFilings" | "yahooPrices" | "yahooCompany" | "amfi" | "mfapi" | "own";
 
 export const SOURCES: Record<SourceId, { name: string; short: string; url: string; what: string; when: string; limits: string }> = {
   nse: {
@@ -18,6 +18,14 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
     when: "Every weekday night; history since 2016",
     limits: "In April 2021 NSE began using group (consolidated) profits for P/E. Earlier values used single-company profits, so they read a little higher.",
   },
+  nseFilings: {
+    name: "Company filings on NSE",
+    short: "results and owners",
+    url: "https://www.nseindia.com/companies-listing/corporate-filings-financial-results",
+    what: "Quarterly and yearly results (sales, profit, EPS, cash from the business, debt, equity) and the quarterly shareholding pattern, including pledged shares, read from the XBRL files companies submit to NSE",
+    when: "Every Saturday; five years of history",
+    limits: "Numbers are exactly as the company filed them. We use group (consolidated) results when a company files them, and skip a period rather than mix in single-company numbers. EPS is adjusted for later splits and bonus issues so years compare fairly.",
+  },
   yahooPrices: {
     name: "Yahoo Finance",
     short: "prices before 25 Nov 2026",
@@ -28,11 +36,11 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
   },
   yahooCompany: {
     name: "Yahoo Finance",
-    short: "company results, owners and dates",
+    short: "ratios, results dates and dividends",
     url: "https://finance.yahoo.com",
-    what: "Company results (sales, profit, debt), ratios, ownership, results dates and dividends",
+    what: "Ratios such as P/E and ROE, expected results dates and dividends, and results for any period missing from the filings",
     when: "Every Saturday",
-    limits: "A summary of the company's filings, not the filings themselves. Numbers can lag a quarter or differ from the annual report. Check the company's filing on NSE before a big decision.",
+    limits: "A summary of the company's filings, not the filings themselves; it can lag a quarter. Where we have the filing itself, the filing wins.",
   },
   amfi: {
     name: "AMFI daily NAV file",

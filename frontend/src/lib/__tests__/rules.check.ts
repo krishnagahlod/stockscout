@@ -53,12 +53,15 @@ import { summarize } from "../portfolio";
 }
 
 // Glance cards state rank, not verdicts
-import { rankOf, standing } from "../glance";
+import { rankOf, standing, stockGlance } from "../glance";
 {
   assert.equal(rankOf([1, 2, 3, 4], 3.5), 0.75);
   assert.equal(standing(0.83), "top 15%");
   assert.equal(standing(0.995), "top 5%", "never 'top 0%'");
   assert.equal(standing(0.2), "bottom 20%");
+  assert.equal(stockGlance({ ...stock(9, "IT", 0.2, 10), debt_to_equity: 0.1 }, { pos: "close to", years: 5 }), "Profitable, borrows little and its P/E is close to its own 5-year middle.");
+  assert.equal(stockGlance({ ...stock(9, "Financial Services", -0.1, 10), debt_to_equity: 8 }, null), "Made a loss in its latest year.", "lenders' debt isn't judged");
+  assert.equal(stockGlance(stock(9, "IT", null, 10), null), null);
   console.log("glance check: ok");
 }
 

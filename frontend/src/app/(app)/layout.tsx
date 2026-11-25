@@ -4,6 +4,8 @@ import { PageTransition } from "@/components/page-transition";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { ComplianceBanner } from "@/components/compliance-banner";
+import { BottomNav, SectionTabs } from "@/components/layout/bottom-nav";
+import Link from "next/link";
 
 export default async function AppLayout({
   children,
@@ -30,7 +32,7 @@ export default async function AppLayout({
   if (needsOnboarding) redirect("/onboarding");
 
   return (
-    <div className="flex h-screen w-full bg-mesh-light selection:bg-indigo-100 selection:text-indigo-900 font-sans text-slate-900">
+    <div className="flex h-dvh w-full bg-mesh-light selection:bg-indigo-100 selection:text-indigo-900 font-sans text-slate-900">
       <div className="hidden md:flex flex-col w-64 shrink-0 p-4 pb-4">
         <div className="flex-1 glass-card rounded-3xl shadow-premium overflow-hidden border-white/60">
           <Sidebar />
@@ -40,8 +42,16 @@ export default async function AppLayout({
         <ComplianceBanner />
         <Header />
         <main className="flex-1 overflow-y-auto p-4 md:p-6 md:pl-0">
+          <SectionTabs />
           <PageTransition>{children}</PageTransition>
+          <p className="mt-10 pb-2 text-center text-[11px] leading-relaxed text-slate-400">
+            Information, not advice. You decide, and you trade in your own broker app.{" "}
+            <Link href="/disclaimer" className="underline underline-offset-2 hover:text-indigo-600">Disclaimer</Link>
+            {" · "}
+            <Link href="/sources" className="underline underline-offset-2 hover:text-indigo-600">Where our numbers come from</Link>
+          </p>
         </main>
+        <BottomNav />
       </div>
     </div>
   );

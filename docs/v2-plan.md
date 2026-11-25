@@ -40,13 +40,14 @@ Phase 3, started 25 Nov 2026 (sources and how data is shown):
 - [x] Tip checker flags promoter pledges (amber from 5%, red from 25% of the promoter's shares)
 - [x] Fund flows (built 25 Nov 2026, Step 1c, weekday nights): foreign (FII) and Indian (DII) institutions' net buying each day from NSE (table `fund_flows`; NSE shows only the latest day, so our history starts 23 Nov 2026), and foreign investors' net investment in shares each month since 2016 from NSDL (table `fpi_monthly`, 130 months loaded; NSDL has it back to 2002). Shown on Market today as "Big investors: buying or selling" with a monthly chart. Checked: March 2020 shows −₹61,973 Cr, the sell-off reported at the time.
 - [x] Results dates from the company's own board-meeting notice to NSE (Step 1d, weekday nights, one call for the next 60 days). An announced date replaces Yahoo's estimate; pages mark the rest "estimate". Replaying October 2026: 406 of 409 Nifty 500 companies filed results within a day of the announced date. Dividends and splits still come from Yahoo (splits feed the EPS and price adjustments, so they stay on one source).
+- [x] Operating margin from the filings (profit before one-offs and tax, interest added back except for lenders, other income taken out), profit and operating margins on sales net of excise duty (ITC 17.9% → 24.4%), dividend yield = dividends paid in the past year ÷ price. Checked: Infosys 21%, TCS 24.6%, Reliance 11.2% operating margin. All 8,920 results filings re-read 25 Nov 2026, 0 errors.
 - [x] Installable on phones: web app manifest and icons, opens full-screen from the home screen (Android: "Install app"; iPhone: Share, "Add to Home Screen"). No offline mode, since every page needs fresh data.
 
 ### Waiting on you (25 Nov 2026)
 
 1. ~~Supabase: move StockScout into its own organization~~ Done 25 Nov 2026; database and site checked afterwards.
 2. **Groq key in Vercel:** add `GROQ_API_KEY` (Settings, Environment Variables, Production), then redeploy. It's the only AI variable; the model defaults to openai/gpt-oss-120b (`LLM_MODEL` overrides it).
-3. **Phone app:** try "Install app" (Android Chrome) or Share, "Add to Home Screen" (iPhone Safari) and say if anything looks off.
+3. **Phone app:** menu, "Install the app" (opens the install prompt, or shows the steps on iPhone).
 4. **Before going public:** a securities lawyer's opinion on the wording and features, a written request to NSE about showing its data, and a decision on research analyst registration.
 
 ### Filings: how they're read (backend/app/services/filings_service.py, Saturday Step 2d)

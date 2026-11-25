@@ -67,3 +67,15 @@ export function trendVerdict(s: StockSnapshot): Verdict {
   const tone = y > 0.1 ? "good" : y < -0.15 ? "weak" : "ok";
   return { label, tone, text: swings };
 }
+
+/** One plain line from the numbers, e.g. "Profitable, borrows little and its P/E is close to its own 5-year middle." */
+export function stockGlance(s: StockSnapshot, band: { pos: "below" | "above" | "close to"; years: number } | null): string | null {
+  const parts: string[] = [];
+  if (s.roe != null) parts.push(s.roe < 0 || (s.net_margin ?? 0) < 0 ? "Made a loss in its latest year" : "Profitable");
+  const de = s.debt_to_equity;
+  if (!isLender(s) && de != null) parts.push(de < 0.5 ? "borrows little" : de > 1.5 ? "borrows heavily" : "borrows a moderate amount");
+  if (band) parts.push(`its P/E is ${band.pos} its own ${band.years}-year middle`);
+  if (!parts.length) return null;
+  const line = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  return line[0].toUpperCase() + line.slice(1) + ".";
+}

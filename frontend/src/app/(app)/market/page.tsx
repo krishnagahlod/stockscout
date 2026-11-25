@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
 import { getByTicker, getUniverse } from "@/lib/market";
-import { marketDay } from "@/lib/market-day";
+import { marketDay, type SectorMove } from "@/lib/market-day";
 import { upcoming, type StockEvent } from "@/lib/events";
 import { dayChange, type StockSnapshot } from "@/lib/metrics";
 import { crores, niceDate, rupees, shortTicker } from "@/lib/format";
@@ -35,6 +35,21 @@ function GaugeStat({ title, g, digits, unit = "", explain }: { title: string; g:
       <dd className="font-display text-2xl font-bold tabular-nums text-slate-900">{g.now.toFixed(digits)}{unit}</dd>
       <dd className="mt-1 text-sm text-slate-600">Lower than today on {share(g.lowerShare)} of days since {g.since.slice(0, 4)} (range {g.low.toFixed(digits)} to {g.high.toFixed(digits)}{unit}). {explain}</dd>
     </div>
+  );
+}
+
+function SectorTiles({ list }: { list: SectorMove[] }) {
+  return (
+    <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      {list.map((s) => (
+        <li key={s.name} className={`rounded-2xl p-3 ${tileStyle(s.change)}`}
+          title={`Best: ${s.best.name} (${((dayChange(s.best) ?? 0) * 100).toFixed(1)}%). Worst: ${s.worst.name} (${((dayChange(s.worst) ?? 0) * 100).toFixed(1)}%).`}>
+          <p className="text-sm font-semibold leading-tight">{s.name}</p>
+          <p className="mt-1 font-display text-lg font-bold tabular-nums">{s.change >= 0 ? "▲" : "▼"} {p1(s.change)}</p>
+          <p className="text-xs opacity-80">{s.rose} of {s.count} rose</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -144,115 +159,121 @@ export default async function MarketPage() {
       <Panel>
         <h2 className="font-display text-lg font-bold text-slate-900">Industries, best to worst</h2>
         <p className="text-sm text-slate-500">Average move of each industry&apos;s companies, with bigger companies counting more.</p>
-        <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {m.sectors.map((s) => (
-            <li key={s.name} className={`rounded-2xl p-3 ${tileStyle(s.change)}`}
-              title={`Best: ${s.best.name} (${((dayChange(s.best) ?? 0) * 100).toFixed(1)}%). Worst: ${s.worst.name} (${((dayChange(s.worst) ?? 0) * 100).toFixed(1)}%).`}>
-              <p className="text-sm font-semibold leading-tight">{s.name}</p>
-              <p className="mt-1 font-display text-lg font-bold tabular-nums">{s.change >= 0 ? "▲" : "▼"} {p1(s.change)}</p>
-              <p className="text-xs opacity-80">{s.rose} of {s.count} rose</p>
-            </li>
-          ))}
-        </ul>
+        <SectorTiles list={m.sectors.length > 8 ? [...m.sectors.slice(0, 4), ...m.sectors.slice(-4)] : m.sectors} />
+        {m.sectors.length > 8 && (
+          <details className="group mt-3">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-semibold text-indigo-600">
+              <span className="group-open:hidden">Show the other {m.sectors.length - 8} industries</span><span className="hidden group-open:inline">Hide them</span>
+            </summary>
+            <SectorTiles list={m.sectors.slice(4, -4)} />
+          </details>
+        )}
       </Panel>
 
       {pe && (
         <Panel>
           <h2 className="font-display text-lg font-bold text-slate-900">What the market costs, against its own past</h2>
           <p className="mt-1 text-slate-700 leading-relaxed">
-            Buying the Nifty 50 today costs {pe.now.toFixed(1)} rupees for every rupee of yearly profit its companies make (its P/E).
-            Since {pe.since.slice(0, 4)} that has ranged from {pe.low.toFixed(1)} to {pe.high.toFixed(1)}, with a middle of {pe.median.toFixed(1)}.
-            It was lower than today on {share(pe.lowerShare)} of days.
+            The Nifty 50 costs {pe.now.toFixed(1)} times its companies&apos; yearly profit (its P/E). It was cheaper than this on {share(pe.lowerShare)} of days since {pe.since.slice(0, 4)}.
           </p>
           <div className="mt-4"><ValuationChart points={peLine} median={pe.median} label={`Nifty 50 P/E each week since ${pe.since.slice(0, 4)}, now ${pe.now.toFixed(1)}`} /></div>
-          <dl className="mt-5 grid gap-5 sm:grid-cols-3">
-            {pb && <GaugeStat title="Price to book (P/B)" g={pb} digits={2} explain="Price against what the companies own, minus what they owe." />}
-            {dy && <GaugeStat title="Dividend yield" g={dy} digits={2} unit="%" explain="Dividends paid in a year against today's price." />}
-            {vix && <GaugeStat title="India VIX" g={vix} digits={1} explain="How big a swing traders expect in the next month. Higher means more nervous." />}
-          </dl>
-          <p className="mt-4 text-xs text-slate-500">A high or low number doesn&apos;t say what happens next; markets have stayed high or low for years. In April 2021 NSE switched to group profits for P/E, so earlier values read a little higher.</p>
-        </Panel>
-      )}
-
-      {(flowDay || flows.months.length > 0) && (
-        <Panel>
-          <h2 className="font-display text-lg font-bold text-slate-900">Big investors: buying or selling</h2>
-          {flowDay && flowDay.fii != null && flowDay.dii != null && (
-            <p className="mt-1 text-slate-700 leading-relaxed">
-              On {niceDate(flowDay.date)}, {netWords(flowDay.fii, "foreign institutions")}, and {netWords(flowDay.dii, "Indian institutions (mutual funds, insurers, pension funds)")}.
-              {fiiSum != null && diiSum != null
-                ? <> Over the last {flowSpan} trading days: foreign {signed(fiiSum)}, Indian {signed(diiSum)}.</>
-                : <> NSE only shows the latest day, so we keep each day from {niceDate(flows.days[0].date)}; a longer view builds up from here.</>}
-            </p>
-          )}
-          {flows.months.length >= 12 && (
-            <>
-              <h3 className="mt-5 text-sm font-semibold text-slate-500">Foreign investors, month by month since {flows.months[0].month.slice(0, 4)}</h3>
-              <div className="mt-2"><FlowsChart points={flows.months.map((x) => ({ date: x.month, value: x.equity }))}
-                label={`Foreign investors' net buying of Indian shares each month since ${flows.months[0].month.slice(0, 4)}, in rupees crore; latest ${monthName(flows.months.at(-1)!.month)}: ${signed(flows.months.at(-1)!.equity)}`} /></div>
-              <p className="mt-3 text-sm text-slate-600">
-                {fpi12 != null && <>Over the last 12 months they {fpi12 >= 0 ? "put in" : "took out"} {crores(Math.abs(fpi12))} net. </>}
-                {fpiLow && fpiHigh && <>Their biggest monthly sale was {crores(-fpiLow.equity)} in {monthName(fpiLow.month)}; their biggest monthly purchase was {crores(fpiHigh.equity)} in {monthName(fpiHigh.month)}.</>}
-              </p>
-            </>
-          )}
-          <p className="mt-4 text-xs text-slate-500">Daily figures are NSE&apos;s first estimates across all exchanges; monthly ones are NSDL&apos;s final figures for foreign investors. Big investors move prices, but their buying or selling doesn&apos;t say what prices do next.</p>
-        </Panel>
-      )}
-
-      <Panel>
-        <h2 className="font-display text-lg font-bold text-slate-900">Biggest moves among large companies</h2>
-        <p className="text-sm text-slate-500">Companies worth over ₹20,000 Cr.</p>
-        <div className="mt-3 grid gap-6 md:grid-cols-2">
-          <MoverList title="Rose the most" list={m.up} />
-          <MoverList title="Fell the most" list={m.down} />
-        </div>
-      </Panel>
-
-      {results.length > 0 && (
-        <Panel>
-          <h2 className="font-display text-lg font-bold text-slate-900">Results due this week</h2>
-          <p className="text-sm text-slate-500">Large companies due to report in the next 7 days. Dates marked “estimate” haven&apos;t been announced by the company yet and can move.</p>
-          <ul className="mt-3 grid gap-x-8 sm:grid-cols-2 text-sm">
-            {results.map((e) => {
-              const s = byId.get(e.stock_id)!;
-              return (
-                <li key={e.stock_id} className="flex justify-between gap-3 border-b border-slate-50 py-2">
-                  <Link href={`/stocks/${shortTicker(s.ticker)}`} className="font-medium text-slate-900 hover:text-indigo-600">{s.name}</Link>
-                  <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}{e.source !== "nse" && " (estimate)"}</span>
-                </li>
-              );
-            })}
-          </ul>
         </Panel>
       )}
 
       <details className="glass-card rounded-3xl p-5 md:p-6 group">
-        <summary className="cursor-pointer list-none font-display font-bold text-slate-900">Go deeper <span className="text-sm font-normal text-slate-500 group-open:hidden">(the wider picture, tap to see)</span></summary>
-        <dl className="mt-4 grid gap-5 sm:grid-cols-2 text-sm">
-          {m.above200 != null && (
-            <div>
-              <dt className="font-semibold text-slate-900">{Math.round(m.above200 * 100)}% of the Nifty 500 trade above their 200-day average price</dt>
-              <dd className="mt-1 text-slate-600">A rough gauge of the longer trend. Above 60% means most companies have been rising for months; below 40% means most have been falling.</dd>
-            </div>
-          )}
-          <div>
-            <dt className="font-semibold text-slate-900">{m.nearHigh} near their 1-year high, {m.nearLow} near their 1-year low</dt>
-            <dd className="mt-1 text-slate-600">Within 3% of the highest or lowest price of the past year.</dd>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center font-display font-bold text-slate-900">Go deeper <span className="ml-1 text-sm font-normal text-slate-500 group-open:hidden">(big investors, biggest movers, results due, the wider picture)</span></summary>
+
+        {(flowDay || flows.months.length > 0) && (
+          <section className="mt-5 border-t border-slate-100 pt-5">
+            <h2 className="font-display text-lg font-bold text-slate-900">Big investors: buying or selling</h2>
+            {flowDay && flowDay.fii != null && flowDay.dii != null && (
+              <p className="mt-1 text-slate-700 leading-relaxed">
+                On {niceDate(flowDay.date)}, {netWords(flowDay.fii, "foreign institutions")}, and {netWords(flowDay.dii, "Indian institutions (mutual funds, insurers, pension funds)")}.
+                {fiiSum != null && diiSum != null
+                  ? <> Over the last {flowSpan} trading days: foreign {signed(fiiSum)}, Indian {signed(diiSum)}.</>
+                  : <> NSE only shows the latest day, so we keep each day from {niceDate(flows.days[0].date)}; a longer view builds up from here.</>}
+              </p>
+            )}
+            {flows.months.length >= 12 && (
+              <>
+                <h3 className="mt-5 text-sm font-semibold text-slate-500">Foreign investors, month by month since {flows.months[0].month.slice(0, 4)}</h3>
+                <div className="mt-2"><FlowsChart points={flows.months.map((x) => ({ date: x.month, value: x.equity }))}
+                  label={`Foreign investors' net buying of Indian shares each month since ${flows.months[0].month.slice(0, 4)}, in rupees crore; latest ${monthName(flows.months.at(-1)!.month)}: ${signed(flows.months.at(-1)!.equity)}`} /></div>
+                <p className="mt-3 text-sm text-slate-600">
+                  {fpi12 != null && <>Over the last 12 months they {fpi12 >= 0 ? "put in" : "took out"} {crores(Math.abs(fpi12))} net. </>}
+                  {fpiLow && fpiHigh && <>Their biggest monthly sale was {crores(-fpiLow.equity)} in {monthName(fpiLow.month)}; their biggest monthly purchase was {crores(fpiHigh.equity)} in {monthName(fpiHigh.month)}.</>}
+                </p>
+              </>
+            )}
+            <p className="mt-4 text-xs text-slate-500">Daily figures are NSE&apos;s first estimates across all exchanges; monthly ones are NSDL&apos;s final figures for foreign investors. Big investors move prices, but their buying or selling doesn&apos;t say what prices do next.</p>
+          </section>
+        )}
+
+        <section className="mt-5 border-t border-slate-100 pt-5">
+          <h2 className="font-display text-lg font-bold text-slate-900">Biggest moves among large companies</h2>
+          <p className="text-sm text-slate-500">Companies worth over ₹20,000 Cr.</p>
+          <div className="mt-3 grid gap-6 md:grid-cols-2">
+            <MoverList title="Rose the most" list={m.up} />
+            <MoverList title="Fell the most" list={m.down} />
           </div>
-          {nifty && (
-            <div>
-              <dt className="font-semibold text-slate-900">Nifty 50 over 1 year: <Change value={nifty.price && nifty.close_1y_ago ? nifty.price / nifty.close_1y_ago - 1 : null} /></dt>
-              <dd className="mt-1 text-slate-600"><Link href="/stocks/%5ENSEI" className="text-indigo-600 underline">See the Nifty 50 chart</Link></dd>
-            </div>
+        </section>
+
+        {results.length > 0 && (
+          <section className="mt-5 border-t border-slate-100 pt-5">
+            <h2 className="font-display text-lg font-bold text-slate-900">Results due this week</h2>
+            <p className="text-sm text-slate-500">Large companies due to report in the next 7 days. Dates marked “estimate” haven&apos;t been announced by the company yet and can move.</p>
+            <ul className="mt-3 grid gap-x-8 sm:grid-cols-2 text-sm">
+              {results.map((e) => {
+                const s = byId.get(e.stock_id)!;
+                return (
+                  <li key={e.stock_id} className="flex justify-between gap-3 border-b border-slate-50 py-2">
+                    <Link href={`/stocks/${shortTicker(s.ticker)}`} className="font-medium text-slate-900 hover:text-indigo-600">{s.name}</Link>
+                    <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}{e.source !== "nse" && " (estimate)"}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        <section className="mt-5 border-t border-slate-100 pt-5">
+          <h2 className="font-display text-lg font-bold text-slate-900">The wider picture</h2>
+          {pe && (
+            <p className="mt-1 text-sm text-slate-600">
+              Since {pe.since.slice(0, 4)} the Nifty 50 P/E has ranged from {pe.low.toFixed(1)} to {pe.high.toFixed(1)}, with a middle of {pe.median.toFixed(1)}.
+              A high or low number doesn&apos;t say what happens next; markets have stayed high or low for years. In April 2021 NSE switched to group profits for P/E, so earlier values read a little higher.
+            </p>
           )}
-          {gold && (
+          <dl className="mt-4 grid gap-5 sm:grid-cols-3">
+            {pb && <GaugeStat title="Price to book (P/B)" g={pb} digits={2} explain="Price against what the companies own, minus what they owe." />}
+            {dy && <GaugeStat title="Dividend yield" g={dy} digits={2} unit="%" explain="Dividends paid in a year against today's price." />}
+            {vix && <GaugeStat title="India VIX" g={vix} digits={1} explain="How big a swing traders expect in the next month. Higher means more nervous." />}
+          </dl>
+          <dl className="mt-5 grid gap-5 sm:grid-cols-2 text-sm">
+            {m.above200 != null && (
+              <div>
+                <dt className="font-semibold text-slate-900">{Math.round(m.above200 * 100)}% of the Nifty 500 trade above their 200-day average price</dt>
+                <dd className="mt-1 text-slate-600">A rough gauge of the longer trend. Above 60% means most companies have been rising for months; below 40% means most have been falling.</dd>
+              </div>
+            )}
             <div>
-              <dt className="font-semibold text-slate-900">Gold (Gold BeES ETF) today: <Change value={dayChange(gold)} /></dt>
-              <dd className="mt-1 text-slate-600">Gold often moves differently from shares.</dd>
+              <dt className="font-semibold text-slate-900">{m.nearHigh} near their 1-year high, {m.nearLow} near their 1-year low</dt>
+              <dd className="mt-1 text-slate-600">Within 3% of the highest or lowest price of the past year.</dd>
             </div>
-          )}
-        </dl>
+            {nifty && (
+              <div>
+                <dt className="font-semibold text-slate-900">Nifty 50 over 1 year: <Change value={nifty.price && nifty.close_1y_ago ? nifty.price / nifty.close_1y_ago - 1 : null} /></dt>
+                <dd className="mt-1 text-slate-600"><Link href="/stocks/%5ENSEI" className="text-indigo-600 underline">See the Nifty 50 chart</Link></dd>
+              </div>
+            )}
+            {gold && (
+              <div>
+                <dt className="font-semibold text-slate-900">Gold (Gold BeES ETF) today: <Change value={dayChange(gold)} /></dt>
+                <dd className="mt-1 text-slate-600">Gold often moves differently from shares.</dd>
+              </div>
+            )}
+          </dl>
+        </section>
       </details>
 
       <Sources ids={["nse", "nseIndex", "flows", "yahooCompany", "own"]} asOf={m.date} />

@@ -26,9 +26,9 @@ export function ComplianceBanner() {
       <div className="flex items-center justify-center gap-2 flex-1">
         <Info className="h-4 w-4 shrink-0 text-slate-400" />
         <p className="text-[11px] sm:text-xs font-medium text-center">
-          Information, not investment advice. StockScout is not registered with SEBI and gives no buy or sell calls.{" "}
+          Information, not advice<span className="hidden sm:inline">. StockScout is not registered with SEBI and gives no buy or sell calls</span>.{" "}
           <Link href="/disclaimer" className="underline hover:text-slate-800">
-            Read the disclaimer
+            <span className="sm:hidden">Disclaimer</span><span className="hidden sm:inline">Read the disclaimer</span>
           </Link>
         </p>
       </div>

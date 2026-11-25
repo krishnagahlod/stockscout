@@ -9,7 +9,7 @@ import { monthsBetween, rolling, trendSince, worstFall } from "@/lib/risk";
 import { eventSummary, type StockEvent } from "@/lib/events";
 import { peBand } from "@/lib/valuation";
 import { crores, niceDate, pct, rupees, shortTicker } from "@/lib/format";
-import { Change, MetricRow, Panel } from "@/components/kit";
+import { Change, MetricRow, Panel, Sources } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "./price-chart";
 import { NewsPanel } from "./news-panel";
@@ -47,9 +47,9 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
 
   const nifty = isIndex ? null : await getByTicker(supabase, "^NSEI");
   const [universe, history, niftyHistory, { data: news }, { data: eventRows }, { data: finRows }, { data: ownRows }] = await Promise.all([
-    getUniverse(supabase),
-    getPriceHistory(supabase, stock.stock_id, 12),
-    nifty ? getPriceHistory(supabase, nifty.stock_id, 12) : Promise.resolve([]),
+    getUniverse(),
+    getPriceHistory(stock.stock_id, 12),
+    nifty ? getPriceHistory(nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
     supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
     supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
@@ -283,7 +283,10 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
         </Panel>
       )}
 
-      <p className="text-xs text-slate-400">Information to help you research, not advice to buy or sell. Prices are end-of-day closes from public sources and may be delayed or incomplete. Past numbers don&apos;t promise future returns.</p>
+      <div className="space-y-2">
+        <Sources ids={["nse", "yahooPrices", "yahooCompany", "own"]} asOf={stock.price_date} />
+        <p className="text-xs text-slate-400">Information to help you research, not advice to buy or sell. Past numbers don&apos;t promise future returns.</p>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { METRICS, formatMetric, yearChange, type MetricKey, type StockSnapshot }
 import { businessVerdict, priceVerdict } from "@/lib/glance";
 import { worstFall } from "@/lib/risk";
 import { niceDate, rupees, shortTicker } from "@/lib/format";
-import { PageTitle, Panel } from "@/components/kit";
+import { PageTitle, Panel, Sources } from "@/components/kit";
 import { CompareChart, SERIES_COLORS } from "./compare-chart";
 import { AddCompany } from "./add-company";
 
@@ -19,9 +19,9 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
   const found = (await Promise.all(tickers.map((t) => getByTicker(supabase, t)))).filter((s): s is StockSnapshot => !!s);
   const nifty = await getByTicker(supabase, "^NSEI");
   const [universe, histories, niftyHistory] = await Promise.all([
-    getUniverse(supabase),
-    Promise.all(found.map((s) => getPriceHistory(supabase, s.stock_id, 6))),
-    nifty ? getPriceHistory(supabase, nifty.stock_id, 6) : Promise.resolve([]),
+    getUniverse(),
+    Promise.all(found.map((s) => getPriceHistory(s.stock_id, 6))),
+    nifty ? getPriceHistory(nifty.stock_id, 6) : Promise.resolve([]),
   ]);
   const codes = found.map((s) => shortTicker(s.ticker));
   const without = (code: string) => `/compare?t=${codes.filter((c) => c !== code).join(",")}`;
@@ -90,6 +90,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
             </div>
             <p className="mt-3 text-xs text-slate-500">Company numbers from the latest reports we have. Tap a company&apos;s name for every number explained. Information, not a recommendation.</p>
           </Panel>
+          <Sources ids={["nse", "yahooPrices", "yahooCompany", "own"]} asOf={found[0].price_date} />
         </>
       )}
     </div>

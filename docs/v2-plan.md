@@ -28,6 +28,24 @@ Phase 2, built 25 Nov 2026:
 - [x] Weekly email (opt-in on Home), Saturday mornings via Resend; needs the RESEND_API_KEY GitHub secret
 - [ ] Pledged shares and fund flows: need NSE's filings and reports, moved to Phase 3 with the data switch
 
+Phase 3, started 25 Nov 2026 (sources and how data is shown):
+
+- [x] NSE's end-of-day file is the main price source (Step 1a in the nightly job). Yahoo is now only a fallback for days NSE doesn't publish or we can't fetch. Prices are only ever appended after a stock's latest stored day, so split adjustments are never undone.
+- [x] Index values from NSE's daily index file: close, P/E, P/B, dividend yield and India VIX for 16 indices, history since 2016 (table `market_daily`).
+- [x] Market today: the main indices (last day, 1 year, 5 years a year) and "what the market costs against its own past" (Nifty 50 P/E chart with its middle line, P/B, dividend yield, VIX).
+- [x] Sources: every data page ends with a line naming its sources and data date; /sources lists each source, how often it updates, its limits and our nightly checks.
+- [x] Supabase load: market data is cached for an hour in Vercel (one database read an hour instead of one per page view).
+- [ ] Company results and ownership from filings instead of Yahoo: parse NSE/BSE XBRL ourselves, or a licensed vendor (decision needed)
+- [ ] Pledged shares and fund flows (FII/DII) from NSE reports
+- [ ] Legal opinion, NSE display rights, RA registration, Pro mode, community, phone app (unchanged)
+
+### Supabase: sharing one account with the intern prep project (checked 25 Nov 2026)
+
+- Database size is counted **per project** (500 MB each on Free). StockScout uses 274 MB, mostly price history (199 MB) and fund NAVs (46 MB). Filling it can't fill the other project.
+- Egress (data sent out, 5 GB a month), storage and monthly users are counted **per organization**. If an organization keeps going over, Supabase's fair-use policy "is generally applied to all projects of the restricted organization": paused projects, read-only databases or every API call returning 402. So StockScout going over could take the intern prep project down with it.
+- Biggest StockScout egress was every page view reading the whole 500-company table (about 350 KB). That is now cached. The nightly job reads roughly 30 to 40 MB a night (about 1 GB a month).
+- To remove the risk completely: create a second free organization and move StockScout into it (Project settings, General, Transfer project). The project keeps its data, URL and API keys, and the two-free-projects limit still holds since it's still two projects.
+
 Data fixes made along the way:
 
 - Filled a hole in price history: 235 stocks were missing 23 Feb to 21 Jul 2026 (22,314 days added).

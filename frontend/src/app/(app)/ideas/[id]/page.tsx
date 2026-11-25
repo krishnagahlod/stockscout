@@ -16,7 +16,7 @@ export default async function IdeaPage({ params, searchParams }: { params: Promi
   const budget = Math.max(0, Math.round(Number(sp.budget) || 0));
   const only = sp.only?.split(",").filter(Boolean);
   const supabase = await createClient();
-  const universe = await getUniverse(supabase);
+  const universe = await getUniverse();
   const sectors = Array.from(new Set(universe.map((s) => s.sector)));
 
   let rules: IdeaRules | null = null;

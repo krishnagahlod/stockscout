@@ -5,7 +5,9 @@ import { marketDay } from "@/lib/market-day";
 import { upcoming, type StockEvent } from "@/lib/events";
 import { dayChange, type StockSnapshot } from "@/lib/metrics";
 import { niceDate, rupees, shortTicker } from "@/lib/format";
-import { Change, PageTitle, Panel } from "@/components/kit";
+import { Change, PageTitle, Panel, Sources } from "@/components/kit";
+import { BROAD_INDICES, changeOver, gauge, getIndexHistory, weekly, type Gauge } from "@/lib/index-history";
+import { ValuationChart } from "./valuation-chart";
 
 export const metadata = { title: "Market today | StockScout" };
 
@@ -17,6 +19,18 @@ function tileStyle(change: number): string {
   if (a < 0.0025) return "bg-slate-100 text-slate-800";
   if (change > 0) return a < 0.01 ? "bg-emerald-50 text-emerald-900" : a < 0.02 ? "bg-emerald-200 text-emerald-950" : "bg-emerald-600 text-white";
   return a < 0.01 ? "bg-rose-50 text-rose-900" : a < 0.02 ? "bg-rose-200 text-rose-950" : "bg-rose-600 text-white";
+}
+
+const share = (x: number) => `${Math.round(x * 100)}%`;
+
+function GaugeStat({ title, g, digits, unit = "", explain }: { title: string; g: Gauge; digits: number; unit?: string; explain: string }) {
+  return (
+    <div>
+      <dt className="text-sm text-slate-500">{title}</dt>
+      <dd className="font-display text-2xl font-bold tabular-nums text-slate-900">{g.now.toFixed(digits)}{unit}</dd>
+      <dd className="mt-1 text-sm text-slate-600">Lower than today on {share(g.lowerShare)} of days since {g.since.slice(0, 4)} (range {g.low.toFixed(digits)} to {g.high.toFixed(digits)}{unit}). {explain}</dd>
+    </div>
+  );
 }
 
 function MoverList({ title, list }: { title: string; list: StockSnapshot[] }) {
@@ -42,10 +56,20 @@ function MoverList({ title, list }: { title: string; list: StockSnapshot[] }) {
 export default async function MarketPage() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
-  const [universe, nifty, gold, { data: eventRows }] = await Promise.all([
-    getUniverse(supabase), getByTicker(supabase, "^NSEI"), getByTicker(supabase, "GOLDBEES"),
+  const [universe, nifty, gold, { data: eventRows }, indexHist, vixHist] = await Promise.all([
+    getUniverse(), getByTicker(supabase, "^NSEI"), getByTicker(supabase, "GOLDBEES"),
     supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("kind", "results").gte("event_date", today).order("event_date").limit(400),
+    Promise.all(BROAD_INDICES.map((i) => getIndexHistory(i.id, 11))),
+    getIndexHistory("india vix", 11),
   ]);
+  const indices = BROAD_INDICES.map((i, n) => {
+    const h = indexHist[n];
+    const [prev, last] = h.slice(-2);
+    return { ...i, last, day: prev && last ? last.close / prev.close - 1 : null, y1: changeOver(h, 1), y5: changeOver(h, 5) };
+  }).filter((i) => i.last);
+  const n50 = indexHist[0];
+  const pe = gauge(n50, "pe"), pb = gauge(n50, "pb"), dy = gauge(n50, "div_yield"), vix = gauge(vixHist, "close");
+  const peLine = weekly(n50).filter((d) => d.pe).map((d) => ({ date: d.date, value: d.pe! }));
   const m = marketDay(universe);
   const byId = new Map(universe.map((s) => [s.stock_id, s]));
   const results = upcoming((eventRows ?? []) as StockEvent[], today, 7)
@@ -70,6 +94,40 @@ export default async function MarketPage() {
         <p className="mt-2 text-sm text-slate-500">One day&apos;s move says little about a company. It&apos;s here so the news makes sense, not as a reason to buy or sell.</p>
       </Panel>
 
+      {indices.length > 0 && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">The main indices</h2>
+          <p className="text-sm text-slate-500">An index tracks a fixed group of companies. Index funds and ETFs copy them.</p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th scope="col" className="py-2 pr-3 font-medium">Index</th>
+                  <th scope="col" className="py-2 px-3 text-right font-medium">Close</th>
+                  <th scope="col" className="py-2 px-3 text-right font-medium">Last day</th>
+                  <th scope="col" className="py-2 px-3 text-right font-medium">1 year</th>
+                  <th scope="col" className="py-2 pl-3 text-right font-medium">5 years, a year</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {indices.map((i) => (
+                  <tr key={i.id}>
+                    <th scope="row" className="py-2.5 pr-3 text-left font-normal">
+                      <span className="font-medium text-slate-900">{i.label}</span>
+                      <span className="block text-xs text-slate-500">{i.note}</span>
+                    </th>
+                    <td className="py-2.5 px-3 text-right tabular-nums">{i.last!.close.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                    <td className="py-2.5 px-3 text-right"><Change value={i.day} /></td>
+                    <td className="py-2.5 px-3 text-right"><Change value={i.y1} /></td>
+                    <td className="py-2.5 pl-3 text-right"><Change value={i.y5} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
       <Panel>
         <h2 className="font-display text-lg font-bold text-slate-900">Industries, best to worst</h2>
         <p className="text-sm text-slate-500">Average move of each industry&apos;s companies, with bigger companies counting more.</p>
@@ -84,6 +142,24 @@ export default async function MarketPage() {
           ))}
         </ul>
       </Panel>
+
+      {pe && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">What the market costs, against its own past</h2>
+          <p className="mt-1 text-slate-700 leading-relaxed">
+            Buying the Nifty 50 today costs {pe.now.toFixed(1)} rupees for every rupee of yearly profit its companies make (its P/E).
+            Since {pe.since.slice(0, 4)} that has ranged from {pe.low.toFixed(1)} to {pe.high.toFixed(1)}, with a middle of {pe.median.toFixed(1)}.
+            It was lower than today on {share(pe.lowerShare)} of days.
+          </p>
+          <div className="mt-4"><ValuationChart points={peLine} median={pe.median} label={`Nifty 50 P/E each week since ${pe.since.slice(0, 4)}, now ${pe.now.toFixed(1)}`} /></div>
+          <dl className="mt-5 grid gap-5 sm:grid-cols-3">
+            {pb && <GaugeStat title="Price to book (P/B)" g={pb} digits={2} explain="Price against what the companies own, minus what they owe." />}
+            {dy && <GaugeStat title="Dividend yield" g={dy} digits={2} unit="%" explain="Dividends paid in a year against today's price." />}
+            {vix && <GaugeStat title="India VIX" g={vix} digits={1} explain="How big a swing traders expect in the next month. Higher means more nervous." />}
+          </dl>
+          <p className="mt-4 text-xs text-slate-500">A high or low number doesn&apos;t say what happens next; markets have stayed high or low for years. In April 2021 NSE switched to group profits for P/E, so earlier values read a little higher.</p>
+        </Panel>
+      )}
 
       <Panel>
         <h2 className="font-display text-lg font-bold text-slate-900">Biggest moves among large companies</h2>
@@ -139,6 +215,8 @@ export default async function MarketPage() {
           )}
         </dl>
       </details>
+
+      <Sources ids={["nse", "nseIndex", "yahooCompany", "own"]} asOf={m.date} />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { groupOf, type Fund } from "@/lib/funds";
 import { rankOf } from "@/lib/glance";
 import { worstFall } from "@/lib/risk";
 import { niceDate, rupees } from "@/lib/format";
-import { Change, Panel } from "@/components/kit";
+import { Change, Panel, Sources } from "@/components/kit";
 import { PriceChart } from "../../stocks/[ticker]/price-chart";
 
 export async function generateMetadata({ params }: { params: Promise<{ code: string }> }) {
@@ -26,7 +26,7 @@ export default async function FundPage({ params }: { params: Promise<{ code: str
   const nifty = await getByTicker(supabase, "^NSEI");
   const [{ data: navs }, niftyHistory, { data: peers }] = await Promise.all([
     supabase.from("fund_nav").select("date, nav").eq("scheme_code", code).order("date", { ascending: true }).limit(2000),
-    nifty ? getPriceHistory(supabase, nifty.stock_id, 8) : Promise.resolve([]),
+    nifty ? getPriceHistory(nifty.stock_id, 8) : Promise.resolve([]),
     supabase.from("funds").select("ret_3y").eq("category", fund.category ?? "").not("ret_3y", "is", null),
   ]);
   const history = (navs ?? []).map((r) => { const v = Number(r.nav); return { date: r.date as string, open: v, high: v, low: v, close: v, volume: null }; });
@@ -90,6 +90,7 @@ export default async function FundPage({ params }: { params: Promise<{ code: str
         </ul>
         <p className="mt-4 text-xs text-slate-500">Information, not a recommendation. Past returns don&apos;t promise future ones. StockScout earns nothing from any fund.</p>
       </Panel>
+      <Sources ids={["amfi", "mfapi", "nseIndex", "own"]} asOf={fund.nav_date} />
     </div>
   );
 }

@@ -12,8 +12,17 @@ from loguru import logger
 async def sync_everything():
     logger.info("Starting FULL database synchronization for all stocks...")
     
+    async with async_session() as db:
+        try:
+            # NSE's official files first; the Yahoo step below then only fills days NSE didn't publish or we couldn't fetch
+            from app.services.nse_service import sync_nse
+            logger.info(f"Step 1a: Prices, delivery % and index values from NSE: {await sync_nse(db)}")
+        except Exception as e:
+            logger.error(f"Error during NSE sync: {e}")
+            await db.rollback()
+
     try:
-        logger.info("Step 1: Syncing all prices...")
+        logger.info("Step 1: Syncing all prices from Yahoo (fallback)...")
         await _run_price_sync(limit=None, start_date=None)
         logger.info(f"Successfully synced prices.")
     except Exception as e:
@@ -57,13 +66,6 @@ async def sync_everything():
         except Exception as e:
             logger.error(f"Error during feature recompute: {e}")
             
-        try:
-            from app.services.nse_service import sync_delivery
-            logger.info(f"Step 3a: Delivery % from NSE: {await sync_delivery(db)} days filled")
-        except Exception as e:
-            logger.error(f"Error during delivery sync: {e}")
-            await db.rollback()
-
         try:
             from app.services.fund_service import sync_funds
             logger.info(f"Step 3b: Mutual funds from AMFI: {await sync_funds(db)}")

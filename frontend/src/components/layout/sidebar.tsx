@@ -1,4 +1,5 @@
 import { SidebarNav } from "./sidebar-nav";
+import Link from "next/link";
 import { TrendingUp } from "lucide-react";
 
 export function Sidebar() {
@@ -15,7 +16,8 @@ export function Sidebar() {
 
       <div className="p-6 mt-auto">
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          Information, not advice. You decide, and you trade in your own broker app.
+          Information, not advice. You decide, and you trade in your own broker app.{" "}
+          <Link href="/sources" className="underline underline-offset-2 hover:text-indigo-600">Where our numbers come from</Link>
         </p>
       </div>
     </aside>

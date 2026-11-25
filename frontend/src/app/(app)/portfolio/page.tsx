@@ -7,7 +7,7 @@ import { summarize, type HoldingRow } from "@/lib/portfolio";
 import { upcoming, type StockEvent } from "@/lib/events";
 import { TAX, taxIfSoldToday } from "@/lib/tax";
 import { niceDate, pct, rupees } from "@/lib/format";
-import { Change, Empty, PageTitle, Panel } from "@/components/kit";
+import { Change, Empty, PageTitle, Panel, Sources } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { AddHoldingForm } from "./add-holding-form";
 import { ImportCSVModal } from "./import-csv-modal";
@@ -143,6 +143,7 @@ export default async function PortfolioPage() {
           </ul>
         </Panel>
       )}
+      <Sources ids={["nse", "yahooCompany", "own"]} />
     </div>
   );
 }

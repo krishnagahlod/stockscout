@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { createClient } from "@/utils/supabase/server";
+import { unstable_cache } from "next/cache";
+import { publicDb } from "@/lib/market";
 import { FUND_GROUPS, groupOf, type Fund } from "@/lib/funds";
 import { niceDate } from "@/lib/format";
-import { Change, Empty, PageTitle, Panel } from "@/components/kit";
+import { Change, Empty, PageTitle, Panel, Sources } from "@/components/kit";
 
 export const metadata = { title: "Mutual funds | StockScout" };
 
@@ -11,8 +12,9 @@ const COLS = "scheme_code, name, amc, category, nav, nav_date, ret_1y, ret_3y, r
 const SORTS = { name: "Name", ret_1y: "1 year", ret_3y: "3 years, a year", ret_5y: "5 years, a year", worst_fall_5y: "Worst fall, 5 years" } as const;
 type SortKey = keyof typeof SORTS;
 
-async function allFunds(): Promise<Fund[]> {
-  const supabase = await createClient();
+// same list for everyone: one read per hour (about 300 KB) instead of one per visit
+const allFunds = unstable_cache(async (): Promise<Fund[]> => {
+  const supabase = publicDb();
   const out: Fund[] = [];
   for (let from = 0; from < 5000; from += 1000) {
     const { data, error } = await supabase.from("funds").select(COLS).order("scheme_code").range(from, from + 999);
@@ -21,7 +23,7 @@ async function allFunds(): Promise<Fund[]> {
     if (!data || data.length < 1000) break;
   }
   return out;
-}
+}, ["all-funds"], { revalidate: 3600 });
 
 const pctOrDash = (v: number | null) => (v == null ? <span className="text-slate-400">—</span> : <Change value={v} />);
 
@@ -107,6 +109,7 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
           </div>
         </Panel>
       )}
+      <Sources ids={["amfi", "mfapi", "own"]} asOf={asOf} />
     </div>
   );
 }

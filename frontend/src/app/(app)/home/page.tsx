@@ -14,7 +14,7 @@ export default async function HomePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const [universe, { data: profile }, { data: holdings }, { data: ideas }] = await Promise.all([
-    getUniverse(supabase),
+    getUniverse(),
     supabase.from("user_profiles").select("display_name, weekly_email").eq("user_id", user!.id).maybeSingle(),
     supabase.from("holdings").select("id, stock_id, quantity, avg_buy_price").eq("user_id", user!.id),
     supabase.from("strategies").select("id, name, description, rules_json").order("created_at", { ascending: false }).limit(10),

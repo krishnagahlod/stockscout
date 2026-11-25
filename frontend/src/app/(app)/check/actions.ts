@@ -21,11 +21,11 @@ export async function checkTip(_prev: CheckState, formData: FormData): Promise<C
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Your session ended. Sign in again to check a tip." };
 
-  const universe = await getUniverse(supabase);
+  const universe = await getUniverse();
   const { found, unknown } = findMentions(text, universe);
   const companies = await Promise.all(
     found.slice(0, MAX_COMPANIES).map(async (s) => {
-      const history = await getPriceHistory(supabase, s.stock_id, 1);
+      const history = await getPriceHistory(s.stock_id, 1);
       const { flags, fine } = tipFlags(s, universe, history);
       return {
         ticker: shortTicker(s.ticker), name: s.name, sector: s.sector, price: s.price, priceDate: s.price_date,

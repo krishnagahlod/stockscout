@@ -3,6 +3,8 @@ import { METRICS, formatMetric, type MetricKey } from "@/lib/metrics";
 import { HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { METRIC_LESSON } from "@/lib/lessons";
+import { SOURCES, type SourceId } from "@/lib/sources";
+import { niceDate } from "@/lib/format";
 
 export function Panel({ className, children, ...props }: React.ComponentProps<"section">) {
   return (
@@ -72,5 +74,18 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "warn"; ch
       tone === "warn" ? "bg-amber-50 text-amber-900 border border-amber-200" : "bg-indigo-50/70 text-indigo-900 border border-indigo-100")}>
       {children}
     </div>
+  );
+}
+
+/** One quiet line under a data panel: which source each kind of number comes from, and how fresh it is. */
+export function Sources({ ids, asOf, className }: { ids: SourceId[]; asOf?: string | null; className?: string }) {
+  return (
+    <p className={cn("text-xs leading-relaxed text-slate-500", className)}>
+      Sources: {ids.map((id, i) => (
+        <span key={id}>{i > 0 && "; "}{SOURCES[id].name} for {SOURCES[id].short}</span>
+      ))}
+      {asOf && <>. Data up to the close of {niceDate(asOf)}</>}.{" "}
+      <Link href="/sources" className="underline underline-offset-2 hover:text-indigo-600">How we get and check our data</Link>
+    </p>
   );
 }

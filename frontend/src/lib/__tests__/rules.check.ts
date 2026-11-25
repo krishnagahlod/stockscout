@@ -210,3 +210,24 @@ import { peBand } from "../valuation";
   assert.equal(peBand(months.slice(0, 8), [{ period_end: "2024-03-31", eps: 10 }]), null, "too little history");
   console.log("valuation check: ok");
 }
+
+// index history: gauge, yearly rate, weekly thinning
+import { changeOver, gauge, weekly, type IndexDay } from "../index-history";
+{
+  const days: IndexDay[] = Array.from({ length: 600 }, (_, i) => {
+    const d = new Date(Date.UTC(2024, 0, 1) + i * 864e5).toISOString().slice(0, 10);
+    return { date: d, close: 100 + i, pe: 20 + (i % 10), pb: null, div_yield: null };
+  });
+  const g = gauge(days, "pe")!;
+  assert.equal(g.low, 20); assert.equal(g.high, 29); assert.equal(g.now, 29);
+  assert.ok(g.lowerShare > 0.85 && g.lowerShare < 0.95, "about 90% of days had a lower P/E");
+  assert.equal(gauge(days, "pb"), null, "no P/B history, no gauge");
+  const y1 = changeOver(days, 1)!;
+  assert.ok(Math.abs(y1 - (699 / (699 - 366) - 1)) < 0.01, `1-year change ${y1}`);
+  assert.equal(changeOver(days, 5), null, "not enough history for 5 years");
+  const holey = days.filter((d) => d.date < "2024-03-01" || d.date > "2025-06-01");
+  assert.equal(changeOver(holey, 1), null, "no price near the start date: no change shown");
+  const w = weekly(days);
+  assert.ok(w.length >= 85 && w.length <= 87 && w[w.length - 1] === days[days.length - 1], "one point a week, latest kept");
+}
+console.log("index history: ok");

@@ -12,7 +12,7 @@ export default async function StartPage() {
   const { data } = await supabase.from("stock_snapshot").select("*").in("sector", ["ETF", "Index"]);
   const rows = (data ?? []) as StockSnapshot[];
   const nifty = rows.find((r) => r.ticker === "^NSEI");
-  const history = nifty ? await getPriceHistory(supabase, nifty.stock_id, 12) : [];
+  const history = nifty ? await getPriceHistory(nifty.stock_id, 12) : [];
 
   let facts: NiftyFacts | null = null;
   const fall = worstFall(history);

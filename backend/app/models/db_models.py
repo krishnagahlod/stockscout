@@ -107,7 +107,7 @@ class Fundamental(Base):
     avg_volume_20d = Column(Float)
     week_52_high = Column(Float)
     week_52_low = Column(Float)
-    source = Column(Text, default="indian_api")
+    source = Column(Text, default="yahoo")
 
     stock = relationship("Stock", back_populates="fundamentals")
 

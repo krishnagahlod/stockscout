@@ -33,7 +33,7 @@ export default async function PortfolioPage() {
   const asOf = dataAsOf(Array.from(snaps.values()));
   const today = new Date().toISOString().slice(0, 10);
   const { data: eventRows } = snaps.size
-    ? await supabase.from("stock_events").select("stock_id, kind, event_date, amount").in("stock_id", Array.from(snaps.keys())).gte("event_date", today)
+    ? await supabase.from("stock_events").select("stock_id, kind, event_date, amount, source").in("stock_id", Array.from(snaps.keys())).gte("event_date", today)
     : { data: [] };
   const soon = upcoming((eventRows ?? []) as StockEvent[], today, 60).filter((e) => e.kind !== "split");
   const tax = taxIfSoldToday(
@@ -132,12 +132,12 @@ export default async function PortfolioPage() {
       {soon.length > 0 && (
         <Panel>
           <h2 className="font-display text-lg font-bold text-slate-900">Coming up for what you own</h2>
-          <p className="text-sm text-slate-500">The next 60 days. Results dates are the expected ones and can move.</p>
+          <p className="text-sm text-slate-500">The next 60 days. Results dates marked “estimate” haven&apos;t been announced by the company yet and can move.</p>
           <ul className="mt-3 divide-y divide-slate-100 text-sm">
             {soon.map((e) => (
               <li key={`${e.stock_id}-${e.kind}-${e.event_date}`} className="flex justify-between gap-3 py-2">
                 <span><span className="font-medium text-slate-900">{snaps.get(e.stock_id)?.name}</span> {e.kind === "results" ? "reports results" : `goes ex-dividend (₹${Number(e.amount).toFixed(2)} a share)`}</span>
-                <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}</span>
+                <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}{e.kind === "results" && e.source !== "nse" && " (estimate)"}</span>
               </li>
             ))}
           </ul>

@@ -26,7 +26,7 @@ Phase 2, built 25 Nov 2026:
 - [x] Results and owners: 4 years and 6 quarters of results, P/E against its own past, insiders vs institutions
 - [x] Delivery % from NSE's daily file, on stock pages and as a tip-checker flag
 - [x] Weekly email (opt-in on Home), Saturday mornings via Resend; needs the RESEND_API_KEY GitHub secret
-- [ ] Pledged shares and fund flows: need NSE's filings and reports, moved to Phase 3 with the data switch
+- [x] Pledged shares and fund flows: moved to Phase 3 and built there (see below)
 
 Phase 3, started 25 Nov 2026 (sources and how data is shown):
 
@@ -38,7 +38,17 @@ Phase 3, started 25 Nov 2026 (sources and how data is shown):
 - [x] Company results, ownership and pledges from NSE's XBRL filings, parsed ourselves (decided 25 Nov 2026: build it, free). See "Filings" below.
 - [x] Ratios (P/E, P/B, ROE, profit margin, debt to equity, market value) worked out from the filings, Yahoo as fallback
 - [x] Tip checker flags promoter pledges (amber from 5%, red from 25% of the promoter's shares)
-- [ ] Fund flows (FII/DII buying and selling by day) from NSE reports
+- [x] Fund flows (built 25 Nov 2026, Step 1c, weekday nights): foreign (FII) and Indian (DII) institutions' net buying each day from NSE (table `fund_flows`; NSE shows only the latest day, so our history starts 23 Nov 2026), and foreign investors' net investment in shares each month since 2016 from NSDL (table `fpi_monthly`, 130 months loaded; NSDL has it back to 2002). Shown on Market today as "Big investors: buying or selling" with a monthly chart. Checked: March 2020 shows −₹61,973 Cr, the sell-off reported at the time.
+- [x] Results dates from the company's own board-meeting notice to NSE (Step 1d, weekday nights, one call for the next 60 days). An announced date replaces Yahoo's estimate; pages mark the rest "estimate". Replaying October 2026: 406 of 409 Nifty 500 companies filed results within a day of the announced date. Dividends and splits still come from Yahoo (splits feed the EPS and price adjustments, so they stay on one source).
+- [x] Installable on phones: web app manifest and icons, opens full-screen from the home screen (Android: "Install app"; iPhone: Share, "Add to Home Screen"). No offline mode, since every page needs fresh data.
+
+### Waiting on you (25 Nov 2026)
+
+1. **Supabase:** move StockScout into its own free organization (Project settings, General, Transfer project) so it can't affect the intern prep project. Data, URL and keys stay the same.
+2. **Groq key:** add `LLM_BASE_URL` (https://api.groq.com/openai/v1), `LLM_API_KEY` and `LLM_MODEL` in Vercel (Settings, Environment Variables). Then the AI explainer gets built.
+3. **Weekly email:** add the `RESEND_API_KEY` GitHub secret, and verify the sending domain golash.in in Resend (emails go from no-reply@golash.in), or tell us another sender address.
+4. **Phone app:** try "Install app" (Android Chrome) or Share, "Add to Home Screen" (iPhone Safari) and say if anything looks off.
+5. **Before going public:** a securities lawyer's opinion on the wording and features, a written request to NSE about showing its data, and a decision on research analyst registration.
 
 ### Filings: how they're read (backend/app/services/filings_service.py, Saturday Step 2d)
 
@@ -58,7 +68,7 @@ Phase 3, started 25 Nov 2026 (sources and how data is shown):
     - Off by 20× or more, or profit and EPS of opposite sign: the row is set aside as `nse_unusual` (29 rows, e.g. Coromandel Mar 2026 filed 100× too small, Kaynes FY23).
     - Off by 5× to 20×: only that EPS is cleared (e.g. Bajaj Finance before its 2025 bonus and split).
 - **First full load (25 Nov 2026):** 500 companies, 10,136 results filings and 6,586 shareholding filings, 0 errors. Results for 488 companies, ownership for 491; ratios from filings for 454, Yahoo for 46. Database 289 MB.
-- [ ] Legal opinion, NSE display rights, RA registration, Pro mode, community, phone app (unchanged)
+- [ ] Legal opinion, NSE display rights, RA registration, Pro mode, community (unchanged)
 
 ### Supabase: sharing one account with the intern prep project (checked 25 Nov 2026)
 

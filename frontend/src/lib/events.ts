@@ -1,5 +1,5 @@
 // Company events (results dates, dividends, splits) summarised for display.
-export type StockEvent = { stock_id: number; kind: "results" | "dividend" | "split"; event_date: string; amount: number | null };
+export type StockEvent = { stock_id: number; kind: "results" | "dividend" | "split"; event_date: string; amount: number | null; source?: "nse" | "yahoo" };
 
 const addDays = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 

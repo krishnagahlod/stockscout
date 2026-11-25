@@ -7,7 +7,7 @@ import { PageTitle, Panel } from "@/components/kit";
 
 export const metadata = { title: "Where our numbers come from | StockScout" };
 
-const ORDER: SourceId[] = ["nse", "nseIndex", "nseFilings", "amfi", "yahooCompany", "yahooPrices", "mfapi", "own"];
+const ORDER: SourceId[] = ["nse", "nseIndex", "nseFilings", "flows", "amfi", "yahooCompany", "yahooPrices", "mfapi", "own"];
 
 export default async function SourcesPage() {
   const [universe, nifty, { data: fund }] = await Promise.all([

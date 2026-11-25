@@ -20,6 +20,18 @@ async def sync_everything():
         except Exception as e:
             logger.error(f"Error during NSE sync: {e}")
             await db.rollback()
+        try:
+            from app.services.flows_service import sync_flows
+            logger.info(f"Step 1c: FII/DII flows (NSE) and monthly FPI investment (NSDL): {await sync_flows(db)}")
+        except Exception as e:
+            logger.error(f"Error during flows sync: {e}")
+            await db.rollback()
+        try:
+            from app.services.events_service import sync_results_dates
+            logger.info(f"Step 1d: Results dates announced on NSE: {await sync_results_dates(db)} companies")
+        except Exception as e:
+            logger.error(f"Error during results dates sync: {e}")
+            await db.rollback()
 
     try:
         logger.info("Step 1: Syncing all prices from Yahoo (fallback)...")

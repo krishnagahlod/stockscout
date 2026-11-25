@@ -4,10 +4,12 @@ import { getByTicker, getUniverse } from "@/lib/market";
 import { marketDay } from "@/lib/market-day";
 import { upcoming, type StockEvent } from "@/lib/events";
 import { dayChange, type StockSnapshot } from "@/lib/metrics";
-import { niceDate, rupees, shortTicker } from "@/lib/format";
+import { crores, niceDate, rupees, shortTicker } from "@/lib/format";
 import { Change, PageTitle, Panel, Sources } from "@/components/kit";
 import { BROAD_INDICES, changeOver, gauge, getIndexHistory, weekly, type Gauge } from "@/lib/index-history";
 import { ValuationChart } from "./valuation-chart";
+import { FlowsChart } from "./flows-chart";
+import { getFlows, lastSum } from "@/lib/flows";
 
 export const metadata = { title: "Market today | StockScout" };
 
@@ -22,6 +24,9 @@ function tileStyle(change: number): string {
 }
 
 const share = (x: number) => `${Math.round(x * 100)}%`;
+const monthName = (m: string) => new Date(m).toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+const netWords = (v: number, who: string) => v >= 0 ? `${who} bought ${crores(v)} more shares than they sold` : `${who} sold ${crores(-v)} more than they bought`;
+const signed = (v: number) => `${v >= 0 ? "+" : "−"}${crores(Math.abs(v))}`;
 
 function GaugeStat({ title, g, digits, unit = "", explain }: { title: string; g: Gauge; digits: number; unit?: string; explain: string }) {
   return (
@@ -56,11 +61,12 @@ function MoverList({ title, list }: { title: string; list: StockSnapshot[] }) {
 export default async function MarketPage() {
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
-  const [universe, nifty, gold, { data: eventRows }, indexHist, vixHist] = await Promise.all([
+  const [universe, nifty, gold, { data: eventRows }, indexHist, vixHist, flows] = await Promise.all([
     getUniverse(), getByTicker(supabase, "^NSEI"), getByTicker(supabase, "GOLDBEES"),
-    supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("kind", "results").gte("event_date", today).order("event_date").limit(400),
+    supabase.from("stock_events").select("stock_id, kind, event_date, amount, source").eq("kind", "results").gte("event_date", today).order("event_date").limit(400),
     Promise.all(BROAD_INDICES.map((i) => getIndexHistory(i.id, 11))),
     getIndexHistory("india vix", 11),
+    getFlows(),
   ]);
   const indices = BROAD_INDICES.map((i, n) => {
     const h = indexHist[n];
@@ -71,6 +77,13 @@ export default async function MarketPage() {
   const pe = gauge(n50, "pe"), pb = gauge(n50, "pb"), dy = gauge(n50, "div_yield"), vix = gauge(vixHist, "close");
   const peLine = weekly(n50).filter((d) => d.pe).map((d) => ({ date: d.date, value: d.pe! }));
   const m = marketDay(universe);
+  const flowDay = flows.days.at(-1);
+  const flowSpan = flows.days.length >= 20 ? 20 : flows.days.length >= 5 ? 5 : 0;
+  const fiiSum = flowSpan ? lastSum(flows.days.map((d) => d.fii), flowSpan) : null;
+  const diiSum = flowSpan ? lastSum(flows.days.map((d) => d.dii), flowSpan) : null;
+  const fpi12 = lastSum(flows.months.map((x) => x.equity), 12);
+  const fpiLow = flows.months.reduce<typeof flows.months[number] | null>((a, x) => (!a || x.equity < a.equity ? x : a), null);
+  const fpiHigh = flows.months.reduce<typeof flows.months[number] | null>((a, x) => (!a || x.equity > a.equity ? x : a), null);
   const byId = new Map(universe.map((s) => [s.stock_id, s]));
   const results = upcoming((eventRows ?? []) as StockEvent[], today, 7)
     .filter((e) => (byId.get(e.stock_id)?.market_cap_cr ?? 0) >= 20000)
@@ -161,6 +174,32 @@ export default async function MarketPage() {
         </Panel>
       )}
 
+      {(flowDay || flows.months.length > 0) && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">Big investors: buying or selling</h2>
+          {flowDay && flowDay.fii != null && flowDay.dii != null && (
+            <p className="mt-1 text-slate-700 leading-relaxed">
+              On {niceDate(flowDay.date)}, {netWords(flowDay.fii, "foreign institutions")}, and {netWords(flowDay.dii, "Indian institutions (mutual funds, insurers, pension funds)")}.
+              {fiiSum != null && diiSum != null
+                ? <> Over the last {flowSpan} trading days: foreign {signed(fiiSum)}, Indian {signed(diiSum)}.</>
+                : <> NSE only shows the latest day, so we keep each day from {niceDate(flows.days[0].date)}; a longer view builds up from here.</>}
+            </p>
+          )}
+          {flows.months.length >= 12 && (
+            <>
+              <h3 className="mt-5 text-sm font-semibold text-slate-500">Foreign investors, month by month since {flows.months[0].month.slice(0, 4)}</h3>
+              <div className="mt-2"><FlowsChart points={flows.months.map((x) => ({ date: x.month, value: x.equity }))}
+                label={`Foreign investors' net buying of Indian shares each month since ${flows.months[0].month.slice(0, 4)}, in rupees crore; latest ${monthName(flows.months.at(-1)!.month)}: ${signed(flows.months.at(-1)!.equity)}`} /></div>
+              <p className="mt-3 text-sm text-slate-600">
+                {fpi12 != null && <>Over the last 12 months they {fpi12 >= 0 ? "put in" : "took out"} {crores(Math.abs(fpi12))} net. </>}
+                {fpiLow && fpiHigh && <>Their biggest monthly sale was {crores(-fpiLow.equity)} in {monthName(fpiLow.month)}; their biggest monthly purchase was {crores(fpiHigh.equity)} in {monthName(fpiHigh.month)}.</>}
+              </p>
+            </>
+          )}
+          <p className="mt-4 text-xs text-slate-500">Daily figures are NSE&apos;s first estimates across all exchanges; monthly ones are NSDL&apos;s final figures for foreign investors. Big investors move prices, but their buying or selling doesn&apos;t say what prices do next.</p>
+        </Panel>
+      )}
+
       <Panel>
         <h2 className="font-display text-lg font-bold text-slate-900">Biggest moves among large companies</h2>
         <p className="text-sm text-slate-500">Companies worth over ₹20,000 Cr.</p>
@@ -172,15 +211,15 @@ export default async function MarketPage() {
 
       {results.length > 0 && (
         <Panel>
-          <h2 className="font-display text-lg font-bold text-slate-900">Results expected this week</h2>
-          <p className="text-sm text-slate-500">Large companies due to report in the next 7 days. Dates are expected ones and can move.</p>
+          <h2 className="font-display text-lg font-bold text-slate-900">Results due this week</h2>
+          <p className="text-sm text-slate-500">Large companies due to report in the next 7 days. Dates marked “estimate” haven&apos;t been announced by the company yet and can move.</p>
           <ul className="mt-3 grid gap-x-8 sm:grid-cols-2 text-sm">
             {results.map((e) => {
               const s = byId.get(e.stock_id)!;
               return (
                 <li key={e.stock_id} className="flex justify-between gap-3 border-b border-slate-50 py-2">
                   <Link href={`/stocks/${shortTicker(s.ticker)}`} className="font-medium text-slate-900 hover:text-indigo-600">{s.name}</Link>
-                  <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}</span>
+                  <span className="shrink-0 text-slate-500">{niceDate(e.event_date)}{e.source !== "nse" && " (estimate)"}</span>
                 </li>
               );
             })}
@@ -216,7 +255,7 @@ export default async function MarketPage() {
         </dl>
       </details>
 
-      <Sources ids={["nse", "nseIndex", "yahooCompany", "own"]} asOf={m.date} />
+      <Sources ids={["nse", "nseIndex", "flows", "yahooCompany", "own"]} asOf={m.date} />
     </div>
   );
 }

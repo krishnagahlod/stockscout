@@ -247,3 +247,9 @@ import { changeOver, gauge, weekly, type IndexDay } from "../index-history";
   assert.deepEqual([m.found.length, m.unknown], [1, ["ZZQX"]], "JSW is part of JSW Steel, ZZQX is unknown");
 }
 console.log("index history: ok");
+
+import { lastSum } from "../flows";
+assert.equal(lastSum([1, 2, 3, 4], 3), 9, "sums the last n");
+assert.equal(lastSum([1, 2], 3), null, "too few values");
+assert.equal(lastSum([1, null, 3], 2), null, "a missing day spoils the sum");
+console.log("flows: ok");

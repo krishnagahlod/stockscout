@@ -1,5 +1,5 @@
 // Where each kind of number comes from. Shown under data panels and in full on /sources.
-export type SourceId = "nse" | "nseIndex" | "nseFilings" | "yahooPrices" | "yahooCompany" | "amfi" | "mfapi" | "own";
+export type SourceId = "nse" | "nseIndex" | "nseFilings" | "flows" | "yahooPrices" | "yahooCompany" | "amfi" | "mfapi" | "own";
 
 export const SOURCES: Record<SourceId, { name: string; short: string; url: string; what: string; when: string; limits: string }> = {
   nse: {
@@ -22,9 +22,17 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
     name: "Company filings on NSE",
     short: "results, owners and ratios",
     url: "https://www.nseindia.com/companies-listing/corporate-filings-financial-results",
-    what: "Quarterly and yearly results (sales, profit, EPS, cash from the business, debt, equity) and the quarterly shareholding pattern, including pledged shares, read from the XBRL files companies submit to NSE. P/E, P/B, ROE, profit margin and debt to equity are worked out from them.",
-    when: "Every Saturday; five years of history",
+    what: "Quarterly and yearly results (sales, profit, EPS, cash from the business, debt, equity) and the quarterly shareholding pattern, including pledged shares, read from the XBRL files companies submit to NSE. P/E, P/B, ROE, profit margin and debt to equity are worked out from them. Results dates come from the board-meeting notices companies send NSE.",
+    when: "Results and owners every Saturday, five years of history; results dates every weekday night",
     limits: "Numbers are exactly as the company filed them. We use group (consolidated) results when a company files them, and skip a period rather than mix in single-company numbers. EPS is adjusted for later splits and bonus issues so years compare fairly. P/E uses the last four quarters' profit without one-off items.",
+  },
+  flows: {
+    name: "NSE and NSDL",
+    short: "money flows",
+    url: "https://www.fpi.nsdl.co.in/web/Reports/Yearwise.aspx?RptType=6",
+    what: "How much foreign (FII) and Indian (DII) institutions bought and sold in shares each day (NSE), and foreign investors' net investment each month since 2002 (NSDL, the depository that records it)",
+    when: "Daily figures every weekday night; monthly figures once NSDL closes the month",
+    limits: "NSE's daily figures are first estimates across NSE, BSE and MSEI, and NSE shows only the latest day, so our daily history starts on 23 Nov 2026. NSDL's monthly figures are final but cover foreign investors only.",
   },
   yahooPrices: {
     name: "Yahoo Finance",
@@ -36,9 +44,9 @@ export const SOURCES: Record<SourceId, { name: string; short: string; url: strin
   },
   yahooCompany: {
     name: "Yahoo Finance",
-    short: "results dates, dividends and splits",
+    short: "dividends, splits and estimated results dates",
     url: "https://finance.yahoo.com",
-    what: "Expected results dates, dividends, splits, dividend yield and beta, and ratios and results for companies whose filings we can't use yet",
+    what: "Estimated results dates (until the company announces one), dividends, splits, dividend yield and beta, and ratios and results for companies whose filings we can't use yet",
     when: "Every Saturday",
     limits: "A summary of the company's filings, not the filings themselves; it can lag a quarter. Where we have the filing itself, the filing wins.",
   },

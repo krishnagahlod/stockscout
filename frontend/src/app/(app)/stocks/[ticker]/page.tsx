@@ -53,7 +53,7 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
     getPriceHistory(stock.stock_id, 12),
     nifty ? getPriceHistory(nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
-    supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
+    supabase.from("stock_events").select("stock_id, kind, event_date, amount, source").eq("stock_id", stock.stock_id),
     supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt, exceptional, source, filed_on").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
     supabase.from("stock_ownership").select("as_of, insiders, institutions, source, promoter, fii, dii, mutual_funds, retail, pledged").eq("stock_id", stock.stock_id).order("as_of", { ascending: true }),
   ]);
@@ -143,7 +143,9 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
 
       {!isFund && (events.nextResults || events.lastDividend) && (
         <p className="text-sm text-slate-600">
-          {events.nextResults && <>Results expected around <strong className="font-semibold text-slate-800">{niceDate(events.nextResults.event_date)}</strong>. </>}
+          {events.nextResults && (events.nextResults.source === "nse"
+            ? <>Results due on <strong className="font-semibold text-slate-800">{niceDate(events.nextResults.event_date)}</strong>, as announced by the company. </>
+            : <>Results expected around <strong className="font-semibold text-slate-800">{niceDate(events.nextResults.event_date)}</strong> (an estimate). </>)}
           {events.payments12m > 0
             ? <>Paid <strong className="font-semibold text-slate-800">₹{events.paid12m.toFixed(2)}</strong> a share in dividends over the past year ({events.payments12m} payment{events.payments12m > 1 ? "s" : ""}).</>
             : events.lastDividend ? <>No dividend in the past year; the last was on {niceDate(events.lastDividend.event_date)}.</> : null}

@@ -76,7 +76,7 @@ export function NewsPanel({ news, aiAnalysis }: { news: NewsItem[], aiAnalysis?:
             
             <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground/60">
               <span>{item.source}</span>
-              <span>{item.published_at ? new Date(item.published_at).toLocaleDateString() : "Recent"}</span>
+              <span>{item.published_at ? new Date(item.published_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : "Recent"}</span>
             </div>
           </motion.div>
         );

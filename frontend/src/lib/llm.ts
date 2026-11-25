@@ -1,13 +1,14 @@
 // Server-only: any OpenAI-compatible chat API (Groq, Cerebras, OpenRouter, ...), chosen by env vars.
-//   LLM_BASE_URL  e.g. https://api.groq.com/openai/v1
-//   LLM_API_KEY
-//   LLM_MODEL     e.g. a model id your provider lists
+//   GROQ_API_KEY  the only one needed (Groq)
+//   LLM_MODEL     optional, default openai/gpt-oss-120b
+//   LLM_BASE_URL + LLM_API_KEY  optional, to use another provider instead
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 
 function config() {
-  if (process.env.LLM_API_KEY) {
-    return { baseUrl: process.env.LLM_BASE_URL || "https://api.groq.com/openai/v1", key: process.env.LLM_API_KEY, model: process.env.LLM_MODEL || "" };
+  const key = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
+  if (key) {
+    return { baseUrl: process.env.LLM_BASE_URL || "https://api.groq.com/openai/v1", key, model: process.env.LLM_MODEL || "openai/gpt-oss-120b" };
   }
   return null;
 }

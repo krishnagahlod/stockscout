@@ -14,7 +14,7 @@ Phase 1, in the agreed order. Ticked items are built (24 Nov 2026).
 - [x] Stock page v2: TradingView Lightweight Charts (line, candles, vs Nifty 50, 50/200-day averages), worst-case line, "above its 50-day average since"
 - [x] Practice mode (/practice): ₹1,00,000 of pretend money, buy and sell at the latest close, "try this idea with practice money"
 - [x] Market today (/market): one-line summary, industry map, big movers, breadth
-- [ ] AI explainer (waiting for the Groq key)
+- [ ] AI explainer: the Groq key is in (25 Nov 2026) and typed ideas work with it; "explain this company in 3 lines" and the tip-checker summary are still to build
 
 Phase 2, built 25 Nov 2026:
 
@@ -25,7 +25,7 @@ Phase 2, built 25 Nov 2026:
 - [x] Lessons (/learn): twelve 2-minute lessons incl. demat and KYC; numbers link to their lesson
 - [x] Results and owners: 4 years and 6 quarters of results, P/E against its own past, insiders vs institutions
 - [x] Delivery % from NSE's daily file, on stock pages and as a tip-checker flag
-- [x] Weekly email (opt-in on Home), Saturday mornings via Resend; needs the RESEND_API_KEY GitHub secret
+- [ ] Weekly email: built, then switched off on 25 Nov 2026 (opt-in removed from Home; no sender domain yet). The Saturday job skips it while the RESEND_API_KEY secret is unset; the code is in backend/app/services/email_service.py
 - [x] Pledged shares and fund flows: moved to Phase 3 and built there (see below)
 
 Phase 3, started 25 Nov 2026 (sources and how data is shown):
@@ -44,11 +44,10 @@ Phase 3, started 25 Nov 2026 (sources and how data is shown):
 
 ### Waiting on you (25 Nov 2026)
 
-1. **Supabase:** move StockScout into its own free organization (Project settings, General, Transfer project) so it can't affect the intern prep project. Data, URL and keys stay the same.
-2. **Groq key:** add `LLM_BASE_URL` (https://api.groq.com/openai/v1), `LLM_API_KEY` and `LLM_MODEL` in Vercel (Settings, Environment Variables). Then the AI explainer gets built.
-3. **Weekly email:** add the `RESEND_API_KEY` GitHub secret, and verify the sending domain golash.in in Resend (emails go from no-reply@golash.in), or tell us another sender address.
-4. **Phone app:** try "Install app" (Android Chrome) or Share, "Add to Home Screen" (iPhone Safari) and say if anything looks off.
-5. **Before going public:** a securities lawyer's opinion on the wording and features, a written request to NSE about showing its data, and a decision on research analyst registration.
+1. ~~Supabase: move StockScout into its own organization~~ Done 25 Nov 2026; database and site checked afterwards.
+2. **Groq key in Vercel:** add `GROQ_API_KEY` (Settings, Environment Variables, Production), then redeploy. It's the only AI variable; the model defaults to openai/gpt-oss-120b (`LLM_MODEL` overrides it).
+3. **Phone app:** try "Install app" (Android Chrome) or Share, "Add to Home Screen" (iPhone Safari) and say if anything looks off.
+4. **Before going public:** a securities lawyer's opinion on the wording and features, a written request to NSE about showing its data, and a decision on research analyst registration.
 
 ### Filings: how they're read (backend/app/services/filings_service.py, Saturday Step 2d)
 
@@ -266,7 +265,7 @@ The architecture stays the same: Next.js on Vercel, Supabase with row-level secu
 | A `portfolio_kind` column on holdings (real or practice) | Practice mode without a second portfolio system |
 | `lightweight-charts` package (about 35 KB) | Candles, volume, averages, with TradingView attribution |
 | New tables in Phase 2: `stock_events`, `shareholding`, `fund_nav`, `market_daily` | Events, ownership, mutual funds, fund flows |
-| Groq key in Vercel (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`) | Typed ideas and plain-language explanations |
+| Groq key in Vercel (`GROQ_API_KEY`) | Typed ideas and plain-language explanations |
 
 ## Sources
 

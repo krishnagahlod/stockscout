@@ -35,7 +35,8 @@ q4 = HEAD + ctx("OneD", "2026-01-01", "2026-03-31") + ctx("FourD", "2025-04-01",
     ]) + "</xbrli:xbrl>"
 r = results_from_xbrl(q4.encode())
 assert r["period_end"] == date(2026, 3, 31) and r["basis"] == "consolidated"
-assert r["quarter"] == {"revenue": 2000, "net_income": 300, "pbt": None, "exceptional": None, "eps": 3.0}, r["quarter"]
+assert r["quarter"] == {"revenue": 2000, "net_income": 300, "pbt": None, "exceptional": None, "eps": 3.0,
+                        "finance_costs": None, "op_profit": None, "excise": None}, r["quarter"]
 y = r["year"]
 assert (y["revenue"], y["net_income"], y["exceptional"]) == (8000, 1500, 350), y
 assert (y["operating_cash_flow"], y["equity"], y["total_debt"]) == (900, 5000, 350), y
@@ -126,3 +127,25 @@ shps = pick_shareholding([{"date": "30-SEP-2026", "xbrl": "https://a/1.xml", "br
                           {"date": "30-JUN-2020", "xbrl": "https://a/0.xml"}, {"date": "30-JUN-2026", "xbrl": None}], date(2021, 1, 1))
 assert shps == [{"period_end": date(2026, 9, 30), "url": "https://a/1.xml"}], shps
 print("filings: ok")
+
+# operating profit and excise duty (an "other expenses" line described "Excise Duty", in its own line context)
+from app.services.filings_service import results_from_xbrl as _r
+OPX = b"""<xbrl xmlns="http://www.xbrl.org/2003/instance" xmlns:x="urn:x">
+<context id="OneD"><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period></context>
+<context id="OneExpenses1D"><entity><segment><typedMember xmlns="http://xbrl.org/2006/xbrldi" dimension="d">1</typedMember></segment></entity><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period></context>
+<context id="OneExpenses2D"><entity><segment><typedMember xmlns="http://xbrl.org/2006/xbrldi" dimension="d">2</typedMember></segment></entity><period><startDate>2026-07-01</startDate><endDate>2026-09-30</endDate></period></context>
+<x:DateOfEndOfReportingPeriod contextRef="OneD">2026-09-30</x:DateOfEndOfReportingPeriod>
+<x:RevenueFromOperations contextRef="OneD">1000</x:RevenueFromOperations>
+<x:ProfitBeforeExceptionalItemsAndTax contextRef="OneD">200</x:ProfitBeforeExceptionalItemsAndTax>
+<x:FinanceCosts contextRef="OneD">30</x:FinanceCosts>
+<x:OtherIncome contextRef="OneD">50</x:OtherIncome>
+<x:ProfitLossForPeriod contextRef="OneD">150</x:ProfitLossForPeriod>
+<x:DescriptionOfOtherExpenses contextRef="OneExpenses1D">Excise Duty</x:DescriptionOfOtherExpenses>
+<x:OtherExpenses contextRef="OneExpenses1D">300</x:OtherExpenses>
+<x:DescriptionOfOtherExpenses contextRef="OneExpenses2D">Other Expenses</x:DescriptionOfOtherExpenses>
+<x:OtherExpenses contextRef="OneExpenses2D">90</x:OtherExpenses>
+</xbrl>"""
+q = _r(OPX)["quarter"]
+assert (q["op_profit"], q["finance_costs"], q["excise"]) == (180, 30, 300), q
+print("operating profit and excise: ok")
+

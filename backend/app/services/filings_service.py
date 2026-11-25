@@ -28,6 +28,9 @@ DURATION = {
     "pbt": ["ProfitBeforeTax", "ProfitLossFromOrdinaryActivitiesBeforeTax", "ProfitLossBeforeTax"],
     "exceptional": ["ExceptionalItemsBeforeTax", "ExceptionalItems"],
     "discontinued": ["ProfitLossFromDiscontinuedOperationsAfterTax"],
+    "pbt_pre": ["ProfitBeforeExceptionalItemsAndTax"],
+    "finance_costs": ["FinanceCosts"],
+    "other_income": ["OtherIncome"],
     "eps": ["BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations", "BasicEarningsPerShareAfterExtraordinaryItems",
             "BasicEarningsLossPerShareFromContinuingOperations", "BasicEarningsPerShare",
             "BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized"],
@@ -101,6 +104,19 @@ def _first(facts, ctx, names, want, skip_zero=False):
     return zero
 
 
+def _excise(facts, ctx, test):
+    """Excise duty, filed as an 'other expenses' line described "Excise Duty" (ITC, Reliance). Line contexts are
+    named after their period (OneExpenses1D, FourOperatingExpenses01D), so the period's own context gives the dates."""
+    desc = {cid for cid, v in facts.get("DescriptionOfOtherExpenses", []) if "excise" in v.lower()}
+    total = None
+    for cid, v in facts.get("OtherExpenses", []):
+        base = "OneD" if cid.startswith("One") else "FourD" if cid.startswith("Four") else cid
+        c = ctx.get(base) or ctx.get(cid)
+        if cid in desc and c and test(c) and _num(v) is not None:
+            total = (total or 0) + _num(v)
+    return total
+
+
 def results_from_xbrl(xml: bytes) -> dict | None:
     """{period_end, basis, quarter: {...}, year: {...} or None} from one results filing."""
     ctx, facts = _read(xml)
@@ -128,6 +144,10 @@ def results_from_xbrl(xml: bytes) -> dict | None:
             row["exceptional"] = (row["exceptional"] or 0) + disc
         if row["eps"] is None and row["net_income"] is not None and shares:
             row["eps"] = round(row["net_income"] / shares, 2)
+        # operating profit: before one-offs and tax, interest added back, other income taken out (lenders: see stock_snapshot)
+        pre, other = row.pop("pbt_pre"), row.pop("other_income")
+        row["op_profit"] = pre + (row["finance_costs"] or 0) - (other or 0) if pre is not None else None
+        row["excise"] = _excise(facts, ctx, test)
         return row if row["revenue"] is not None or row["net_income"] is not None else None
 
     quarter, year = period(span(80, 100)), period(span(350, 380))
@@ -278,16 +298,18 @@ def _result_rows(sid: int, parsed: dict) -> list[dict]:
     for freq, part in (("quarterly", parsed["quarter"]), ("annual", parsed["year"])):
         if part:
             rows.append({"s": sid, "freq": freq, "pe": parsed["period_end"], "basis": parsed["basis"], "filed": parsed.get("filed_on"), "operating_cash_flow": None,
-                         "total_debt": None, "equity": None, **{k: _dec(v) for k, v in part.items()}})
+                         "op_profit": None, "finance_costs": None, "excise": None, "total_debt": None, "equity": None, **{k: _dec(v) for k, v in part.items()}})
     return rows
 
 
 INSERT_RESULTS = text("""
         insert into stock_financials (stock_id, freq, period_end, revenue, net_income, eps, pbt, exceptional, operating_cash_flow,
-          total_debt, equity, basis, filed_on, source, updated_at)
-        values (:s, :freq, :pe, :revenue, :net_income, :eps, :pbt, :exceptional, :operating_cash_flow, :total_debt, :equity, :basis, :filed, 'nse', now())
+          op_profit, finance_costs, excise, total_debt, equity, basis, filed_on, source, updated_at)
+        values (:s, :freq, :pe, :revenue, :net_income, :eps, :pbt, :exceptional, :operating_cash_flow, :op_profit, :finance_costs, :excise, :total_debt, :equity, :basis, :filed, 'nse', now())
         on conflict (stock_id, freq, period_end) do update set revenue = excluded.revenue, net_income = excluded.net_income,
           eps = excluded.eps, pbt = excluded.pbt, exceptional = excluded.exceptional,
+          op_profit = coalesce(excluded.op_profit, stock_financials.op_profit),
+          finance_costs = coalesce(excluded.finance_costs, stock_financials.finance_costs), excise = coalesce(excluded.excise, stock_financials.excise),
           operating_cash_flow = coalesce(excluded.operating_cash_flow, stock_financials.operating_cash_flow),
           total_debt = coalesce(excluded.total_debt, stock_financials.total_debt),
           equity = coalesce(excluded.equity, stock_financials.equity), filed_on = excluded.filed_on, basis = excluded.basis, source = 'nse', updated_at = now()""")

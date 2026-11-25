@@ -1,6 +1,7 @@
 import { SidebarNav } from "./sidebar-nav";
 import Link from "next/link";
 import { TrendingUp } from "lucide-react";
+import { InstallApp } from "./install-app";
 
 export function Sidebar() {
   return (
@@ -13,6 +14,7 @@ export function Sidebar() {
       </div>
 
       <SidebarNav />
+      <InstallApp />
 
       <div className="p-6 mt-auto">
         <p className="text-[11px] text-slate-400 leading-relaxed">

@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { SidebarNav } from "./sidebar-nav";
 import { GlobalSearch } from "./global-search";
 import { SignOutButton } from "./sign-out-button";
+import { InstallApp } from "./install-app";
 
 export function Header() {
   return (
@@ -27,6 +28,7 @@ export function Header() {
               <span className="text-lg font-display font-bold tracking-tight text-slate-900">StockScout</span>
             </div>
             <SidebarNav />
+            <InstallApp />
           </SheetContent>
         </Sheet>
         <span className="text-lg font-display font-bold tracking-tight text-slate-900 md:hidden">StockScout</span>

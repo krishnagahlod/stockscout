@@ -23,7 +23,7 @@ export function StockTabs({ tabs }: { tabs: { id: string; label: string; content
           <button key={t.id} id={`tab-${t.id}`} ref={(el) => { refs.current[i] = el; }} type="button" role="tab"
             aria-selected={active === t.id} aria-controls={`panel-${t.id}`} tabIndex={active === t.id ? 0 : -1}
             onClick={() => setActive(t.id)} onKeyDown={(e) => onKey(e, i)}
-            className={cn("min-h-10 whitespace-nowrap rounded-xl px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-indigo-600",
+            className={cn("min-h-10 shrink-0 whitespace-nowrap rounded-xl px-3 sm:px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-indigo-600",
               active === t.id ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800")}>
             {t.label}
           </button>

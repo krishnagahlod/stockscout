@@ -1,6 +1,22 @@
 # StockScout UI and navigation plan
 
-*Draft for review, 25 Nov 2026. Nothing here is built yet.*
+*Written 25 Nov 2026; steps 1 to 5 built the same evening (see Build status).*
+
+## Build status (25 Nov 2026)
+
+Built with the recommended answers to the decisions at the end (bottom tabs; Practice as a tab next to Portfolio). Both are easy to change.
+
+- [x] **Navigation:** bottom tab bar on phones (Home, Market, Check, Mine, More); More opens a sheet with Start here, Ideas, Learn, Sources, Install the app, the disclaimer and Sign out. The desktop sidebar uses the same five groups. The header on phones is just the name and search. Sign out moved out of the header. The disclaimer bar is one line on phones and still closes for good; a one-line note sits at the foot of every page.
+- [x] **Tabs inside a group:** Market today | Mutual funds | Compare, and Portfolio | Practice, at the top of those pages (pages keep their own addresses).
+- [x] **Home:** one sentence (Nifty 50's last move, and what your holdings are worth), three doors (Start here, Check a tip, Describe an idea), then "For you" (portfolio, results and dividends in the next 30 days for what you own, saved ideas) only when there's something to show.
+- [x] **Market today:** sentence, then three cards (indices, industries with the best 3 and worst 3 shown, what the market costs), then one closed "Go deeper" with big investors, biggest movers, results due and the wider picture. On a phone the indices table now shows the changes instead of the closing value.
+- [x] **Stock page:** a one-line summary built from the numbers ("Profitable, borrows little and its P/E is below its own 4-year middle."), then tabs: Overview, Results, Owners, All numbers, News.
+- [x] **Funds:** opens with "Most people start with an index fund that follows the Nifty 50" and three such funds from different fund houses (highest 5-year return, which for the same index mostly means lowest fees; we don't have expense ratios). Then three plain groups, then search and every group as a short list.
+- [x] **Practice:** a "Pretend money" badge next to the title.
+- [ ] Last pass over every page (Ideas, Check, Learn, Start, Sources, Compare) at phone width and desktop.
+
+Measured on an iPhone 13-sized screen (whole screens): Market today about 3 (was 8); the stock page's Overview tab about 4, with results, owners, every number and news behind the other tabs.
+
 
 The goal from the v2 plan: simple on top, depth for those who want it. Every screen opens with one sentence a beginner can read, then a few explained cards, and the full detail only behind "Go deeper".
 

@@ -127,14 +127,14 @@ export default async function MarketPage() {
           <h2 className="font-display text-lg font-bold text-slate-900">The main indices</h2>
           <p className="text-sm text-slate-500">An index tracks a fixed group of companies. Index funds and ETFs copy them.</p>
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-sm">
+            <table className="w-full text-sm sm:min-w-[34rem]">
               <thead>
                 <tr className="text-left text-slate-500">
                   <th scope="col" className="py-2 pr-3 font-medium">Index</th>
-                  <th scope="col" className="py-2 px-3 text-right font-medium">Close</th>
-                  <th scope="col" className="py-2 px-3 text-right font-medium">Last day</th>
-                  <th scope="col" className="py-2 px-3 text-right font-medium">1 year</th>
-                  <th scope="col" className="py-2 pl-3 text-right font-medium">5 years, a year</th>
+                  <th scope="col" className="hidden py-2 px-3 text-right font-medium sm:table-cell">Close</th>
+                  <th scope="col" className="py-2 px-2 sm:px-3 text-right font-medium">Last day</th>
+                  <th scope="col" className="py-2 px-2 sm:px-3 text-right font-medium">1 year</th>
+                  <th scope="col" className="py-2 pl-2 sm:pl-3 text-right font-medium">5 years, a year</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -144,10 +144,10 @@ export default async function MarketPage() {
                       <span className="font-medium text-slate-900">{i.label}</span>
                       <span className="block text-xs text-slate-500">{i.note}</span>
                     </th>
-                    <td className="py-2.5 px-3 text-right tabular-nums">{i.last!.close.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                    <td className="py-2.5 px-3 text-right"><Change value={i.day} /></td>
-                    <td className="py-2.5 px-3 text-right"><Change value={i.y1} /></td>
-                    <td className="py-2.5 pl-3 text-right"><Change value={i.y5} /></td>
+                    <td className="hidden py-2.5 px-3 text-right tabular-nums sm:table-cell">{i.last!.close.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                    <td className="py-2.5 px-2 sm:px-3 text-right"><Change value={i.day} /></td>
+                    <td className="py-2.5 px-2 sm:px-3 text-right"><Change value={i.y1} /></td>
+                    <td className="py-2.5 pl-2 sm:pl-3 text-right"><Change value={i.y5} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -159,13 +159,13 @@ export default async function MarketPage() {
       <Panel>
         <h2 className="font-display text-lg font-bold text-slate-900">Industries, best to worst</h2>
         <p className="text-sm text-slate-500">Average move of each industry&apos;s companies, with bigger companies counting more.</p>
-        <SectorTiles list={m.sectors.length > 8 ? [...m.sectors.slice(0, 4), ...m.sectors.slice(-4)] : m.sectors} />
-        {m.sectors.length > 8 && (
+        <SectorTiles list={m.sectors.length > 6 ? [...m.sectors.slice(0, 3), ...m.sectors.slice(-3)] : m.sectors} />
+        {m.sectors.length > 6 && (
           <details className="group mt-3">
             <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-semibold text-indigo-600">
-              <span className="group-open:hidden">Show the other {m.sectors.length - 8} industries</span><span className="hidden group-open:inline">Hide them</span>
+              <span className="group-open:hidden">Show the other {m.sectors.length - 6} industries</span><span className="hidden group-open:inline">Hide them</span>
             </summary>
-            <SectorTiles list={m.sectors.slice(4, -4)} />
+            <SectorTiles list={m.sectors.slice(3, -3)} />
           </details>
         )}
       </Panel>
@@ -181,7 +181,10 @@ export default async function MarketPage() {
       )}
 
       <details className="glass-card rounded-3xl p-5 md:p-6 group">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center font-display font-bold text-slate-900">Go deeper <span className="ml-1 text-sm font-normal text-slate-500 group-open:hidden">(big investors, biggest movers, results due, the wider picture)</span></summary>
+        <summary className="min-h-11 cursor-pointer list-none">
+          <span className="block font-display text-lg font-bold text-slate-900">Go deeper <span aria-hidden className="text-indigo-600 group-open:hidden">+</span></span>
+          <span className="block text-sm text-slate-500 group-open:hidden">Big investors, biggest movers, results due, and the wider picture.</span>
+        </summary>
 
         {(flowDay || flows.months.length > 0) && (
           <section className="mt-5 border-t border-slate-100 pt-5">

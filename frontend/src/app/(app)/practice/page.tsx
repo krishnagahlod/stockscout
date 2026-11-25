@@ -37,7 +37,7 @@ export default async function PracticePage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <PageTitle title="Practice" subtitle="₹1,00,000 of pretend money at real closing prices. Nothing here is real, so mistakes are free." action={trades.length ? <ResetButton /> : undefined} />
+      <PageTitle title="Practice" subtitle={<><span className="mr-2 inline-block rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-xs font-bold uppercase tracking-wide text-amber-800">Pretend money</span>₹1,00,000 of pretend money at real closing prices. Nothing here is real, so mistakes are free.</>} action={trades.length ? <ResetButton /> : undefined} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Panel>

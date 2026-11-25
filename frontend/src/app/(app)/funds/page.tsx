@@ -46,12 +46,36 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
   if (!group && !q) {
     const counts = new Map<string, number>();
     funds.forEach((f) => counts.set(groupOf(f.category).id, (counts.get(groupOf(f.category).id) ?? 0) + 1));
+    // same index, so a higher 5-year return mostly means lower fees and closer tracking
+    const n50 = funds
+      .filter((f) => /nifty 50 index/i.test(f.name) && !/next|equal|value|quality|momentum|alpha|low vol/i.test(f.name) && f.ret_5y != null)
+      .sort((a, b) => b.ret_5y! - a.ret_5y!)
+      .filter((f, i, xs) => xs.findIndex((x) => x.amc === f.amc) === i)
+      .slice(0, 3);
+    const featured = ["index", "large", "parking"].map((id) => FUND_GROUPS.find((g) => g.id === id)!);
     return (
       <div className="max-w-6xl mx-auto space-y-6">
         <PageTitle title="Mutual funds" subtitle={`${funds.length.toLocaleString("en-IN")} funds from AMFI, Direct plan and Growth option only${asOf ? `, NAVs as of ${niceDate(asOf)}` : ""}.`} />
-        {searchBox}
-        <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {FUND_GROUPS.map((g) => (
+        <Panel>
+          <p className="font-display text-xl md:text-2xl font-bold leading-snug text-slate-900">Most people start with an index fund that follows the Nifty 50.</p>
+          {n50.length > 0 && (
+            <>
+              <p className="mt-2 text-sm text-slate-600">Three from different fund houses with the highest 5-year return. They all hold the same 50 companies, so the gap between them is mostly fees.</p>
+              <ul className="mt-3 divide-y divide-slate-100">
+                {n50.map((f) => (
+                  <li key={f.scheme_code}>
+                    <Link href={`/funds/${f.scheme_code}`} className="flex min-h-11 items-center justify-between gap-3 py-2 hover:text-indigo-600">
+                      <span className="min-w-0 text-sm font-medium">{f.name}</span>
+                      <span className="shrink-0 text-right text-xs text-slate-500">5 years, a year<br /><Change value={f.ret_5y} className="text-sm" /></span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Panel>
+        <ul className="grid gap-4 md:grid-cols-3">
+          {featured.map((g) => (
             <li key={g.id}>
               <Link href={`/funds?group=${g.id}`} className="glass-card block h-full rounded-3xl p-5 hover:shadow-premium-hover">
                 <p className="font-display text-lg font-bold text-slate-900">{g.title}</p>
@@ -65,6 +89,19 @@ export default async function FundsPage({ searchParams }: { searchParams: Promis
             </li>
           ))}
         </ul>
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">Every fund</h2>
+          <div className="mt-3">{searchBox}</div>
+          <ul className="mt-3 grid gap-x-8 sm:grid-cols-2">
+            {FUND_GROUPS.map((g) => (
+              <li key={g.id} className="border-b border-slate-100">
+                <Link href={`/funds?group=${g.id}`} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm hover:text-indigo-600">
+                  <span className="font-medium">{g.title}</span><span className="shrink-0 text-slate-500">{counts.get(g.id) ?? 0}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Panel>
         <p className="text-xs text-slate-500">StockScout earns nothing from any fund. Fund lists are information, not recommendations.</p>
       </div>
     );

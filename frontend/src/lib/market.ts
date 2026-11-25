@@ -23,7 +23,7 @@ export async function getByTicker(supabase: SupabaseClient, ticker: string): Pro
   return (data?.[0] as StockSnapshot) ?? null;
 }
 
-export type PricePoint = { date: string; open: number; high: number; low: number; close: number; volume: number | null };
+export type PricePoint = { date: string; open: number; high: number; low: number; close: number; volume: number | null; delivery_pct?: number | null };
 
 /** Daily closes for the last `years`, newest last. Pages through PostgREST's 1000-row limit. */
 export async function getPriceHistory(supabase: SupabaseClient, stockId: number, years = 5): Promise<PricePoint[]> {
@@ -33,7 +33,7 @@ export async function getPriceHistory(supabase: SupabaseClient, stockId: number,
   for (let from = 0; from < 5000; from += 1000) {
     const { data, error } = await supabase
       .from("daily_prices")
-      .select("date, open, high, low, close, volume")
+      .select("date, open, high, low, close, volume, delivery_pct")
       .eq("stock_id", stockId)
       .gte("date", since.toISOString().slice(0, 10))
       .order("date", { ascending: true })

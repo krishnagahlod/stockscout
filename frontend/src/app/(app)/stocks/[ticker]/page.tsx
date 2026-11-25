@@ -7,6 +7,7 @@ import { dayChange, yearChange, type MetricKey } from "@/lib/metrics";
 import { businessVerdict, priceVerdict, trendVerdict, type Verdict } from "@/lib/glance";
 import { monthsBetween, rolling, trendSince, worstFall } from "@/lib/risk";
 import { eventSummary, type StockEvent } from "@/lib/events";
+import { peBand } from "@/lib/valuation";
 import { crores, niceDate, pct, rupees, shortTicker } from "@/lib/format";
 import { Change, MetricRow, Panel } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -45,12 +46,14 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   const isIndex = stock.sector === "Index";
 
   const nifty = isIndex ? null : await getByTicker(supabase, "^NSEI");
-  const [universe, history, niftyHistory, { data: news }, { data: eventRows }] = await Promise.all([
+  const [universe, history, niftyHistory, { data: news }, { data: eventRows }, { data: finRows }, { data: ownRows }] = await Promise.all([
     getUniverse(supabase),
     getPriceHistory(supabase, stock.stock_id, 12),
     nifty ? getPriceHistory(supabase, nifty.stock_id, 12) : Promise.resolve([]),
     supabase.from("news_items").select("id, title, summary, source, url, sentiment_score, published_at").eq("stock_id", stock.stock_id).order("published_at", { ascending: false }).limit(6),
     supabase.from("stock_events").select("stock_id, kind, event_date, amount").eq("stock_id", stock.stock_id),
+    supabase.from("stock_financials").select("freq, period_end, revenue, net_income, eps, operating_cash_flow, total_debt").eq("stock_id", stock.stock_id).order("period_end", { ascending: false }),
+    supabase.from("stock_ownership").select("as_of, insiders, institutions").eq("stock_id", stock.stock_id).order("as_of", { ascending: true }),
   ]);
   const events = eventSummary((eventRows ?? []) as StockEvent[], new Date().toISOString().slice(0, 10));
 
@@ -62,13 +65,28 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
   const oneYearWindows = rolling(history, 1);
   const trend = trendSince(history, 50);
 
+  type Fin = { freq: string; period_end: string; revenue: number | null; net_income: number | null; eps: number | null; operating_cash_flow: number | null; total_debt: number | null };
+  const fins = (finRows ?? []) as Fin[];
+  const annual = fins.filter((f) => f.freq === "annual").slice(0, 4);
+  const quarters = fins.filter((f) => f.freq === "quarterly").slice(0, 6);
+  const band = isFund ? null : peBand(history, annual.map((a) => ({ period_end: a.period_end, eps: a.eps == null ? null : Number(a.eps) })));
+  const priceCard = priceVerdict(stock, universe);
+  if (band && stock.pe && stock.pe > 0) {
+    const pos = stock.pe < band.mid * 0.9 ? "below" : stock.pe > band.mid * 1.1 ? "above" : "close to";
+    priceCard.text += ` Against its own past: P/E ranged ${band.low.toFixed(0)} to ${band.high.toFixed(0)} over the last ${Math.round(band.months / 12)} years, so today's is ${pos} its middle (${band.mid.toFixed(0)}).`;
+  }
+  const owners = (ownRows ?? []) as { as_of: string; insiders: number | null; institutions: number | null }[];
+  const own = owners[owners.length - 1];
+  const cr = (v: number | null) => (v == null ? "—" : crores(Number(v) / 1e7));
+  const delivVals = history.slice(-20).map((p) => p.delivery_pct).filter((v): v is number => v != null).map(Number);
+  const deliv = !isFund && delivVals.length >= 5 ? { last: delivVals[delivVals.length - 1], avg: delivVals.reduce((a, v) => a + v, 0) / delivVals.length } : null;
   const trendCard = trendVerdict(stock);
   if (trend) trendCard.text = `Price ${trend.above ? "above" : "below"} its 50-day average since ${niceDate(trend.since)}. ${trendCard.text}`.trim();
   const verdicts = isFund
     ? [{ heading: "1 year", v: trendCard }]
     : [
         { heading: "The business", v: businessVerdict(stock, universe) },
-        { heading: "The price", v: priceVerdict(stock, universe) },
+        { heading: "The price", v: priceCard },
         { heading: "Recent trend", v: trendCard },
       ];
   const peers = isFund ? [] : universe
@@ -152,6 +170,15 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
                 {g.metrics.map((m) => <MetricRow key={m} metric={m} value={stock[m] as number | null} />)}
               </div>
             ))}
+            {deliv && (
+              <div className="mt-3">
+                <p className="text-sm font-semibold text-slate-500">Shares kept by buyers (delivery)</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                  <strong>{Math.round(deliv.last)}%</strong> of shares traded on the last day were taken into buyers&apos; accounts; the 20-day average is <strong>{Math.round(deliv.avg)}%</strong>.
+                  <span className="block text-slate-500">The rest were bought and sold the same day. A higher share usually means more longer-term buyers; a sharp jump on a low share is mostly short-term trading.</span>
+                </p>
+              </div>
+            )}
             {fallAll && history.length > 0 && (
               <div className="mt-3">
                 <p className="text-sm font-semibold text-slate-500">Since {history[0].date.slice(0, 4)}</p>
@@ -192,6 +219,62 @@ export default async function StockPage({ params }: { params: Promise<{ ticker: 
           </Panel>
         )}
       </div>
+
+      {!isFund && (annual.length > 0 || own) && (
+        <Panel>
+          <h2 className="font-display text-lg font-bold text-slate-900">Go deeper: results and owners</h2>
+          {annual.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="text-left text-sm font-semibold text-slate-500 pb-2">Each year (to 31 March unless stated)</caption>
+                <thead><tr className="border-b border-slate-100 text-left text-slate-500"><th className="py-2 font-medium">Year ending</th><th className="py-2 text-right font-medium">Sales</th><th className="py-2 text-right font-medium">Profit</th><th className="py-2 text-right font-medium">Profit margin</th><th className="py-2 text-right font-medium">EPS</th><th className="py-2 text-right font-medium">Cash from business</th><th className="py-2 text-right font-medium">Debt</th></tr></thead>
+                <tbody>
+                  {annual.map((a) => (
+                    <tr key={a.period_end} className="border-b border-slate-50">
+                      <td className="py-2">{niceDate(a.period_end)}</td>
+                      <td className="py-2 text-right tabular-nums">{cr(a.revenue)}</td>
+                      <td className="py-2 text-right tabular-nums">{cr(a.net_income)}</td>
+                      <td className="py-2 text-right tabular-nums">{a.revenue && a.net_income != null ? pct(Number(a.net_income) / Number(a.revenue), 0) : "—"}</td>
+                      <td className="py-2 text-right tabular-nums">{a.eps == null ? "—" : `₹${Number(a.eps).toFixed(2)}`}</td>
+                      <td className="py-2 text-right tabular-nums">{cr(a.operating_cash_flow)}</td>
+                      <td className="py-2 text-right tabular-nums">{cr(a.total_debt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {quarters.length > 0 && (
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="text-left text-sm font-semibold text-slate-500 pb-2">Each quarter, with the change from the same quarter a year earlier</caption>
+                <thead><tr className="border-b border-slate-100 text-left text-slate-500"><th className="py-2 font-medium">Quarter ending</th><th className="py-2 text-right font-medium">Sales</th><th className="py-2 text-right font-medium">Profit</th></tr></thead>
+                <tbody>
+                  {quarters.map((q) => {
+                    const prior = fins.find((f) => f.freq === "quarterly" && f.period_end.slice(5) === q.period_end.slice(5) && Number(f.period_end.slice(0, 4)) === Number(q.period_end.slice(0, 4)) - 1);
+                    const yoy = (a: number | null, b: number | null | undefined) => (a != null && b ? <Change value={Number(a) / Number(b) - 1} className="ml-2 text-xs" /> : null);
+                    return (
+                      <tr key={q.period_end} className="border-b border-slate-50">
+                        <td className="py-2">{niceDate(q.period_end)}</td>
+                        <td className="py-2 text-right tabular-nums">{cr(q.revenue)}{yoy(q.revenue, prior?.revenue)}</td>
+                        <td className="py-2 text-right tabular-nums">{cr(q.net_income)}{prior?.net_income && Number(prior.net_income) > 0 ? yoy(q.net_income, prior.net_income) : null}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {own && (
+            <p className="mt-5 text-sm leading-relaxed text-slate-700">
+              <strong className="font-semibold">Who owns it:</strong> insiders, mostly the promoter group, hold {pct(own.insiders == null ? null : Number(own.insiders), 0)}; institutions such as mutual funds, insurers and foreign investors hold {pct(own.institutions == null ? null : Number(own.institutions), 0)}.
+              {owners.length > 1 && owners[0].insiders != null && own.insiders != null && Math.abs(Number(own.insiders) - Number(owners[0].insiders)) >= 0.005 && <> Insiders&apos; share has {Number(own.insiders) > Number(owners[0].insiders) ? "risen" : "fallen"} from {pct(Number(owners[0].insiders), 0)} since {niceDate(owners[0].as_of)}.</>}
+              <span className="block text-xs text-slate-500">Pledged shares aren&apos;t shown yet; they need NSE&apos;s quarterly filings.</span>
+            </p>
+          )}
+          <p className="mt-3 text-xs text-slate-500">Figures from Yahoo Finance; ₹ Cr is crores (1 Cr = ₹1,00,00,000).</p>
+        </Panel>
+      )}
 
       {(news?.length ?? 0) > 0 && (
         <Panel>

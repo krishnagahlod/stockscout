@@ -15,7 +15,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 210
     defaults:
       run:
         working-directory: backend
@@ -24,6 +24,7 @@ jobs:
       USE_SQLITE: "false"
       SCHEDULER_ENABLED: "false"
       SKIP_FUNDAMENTALS: ${{ github.event.schedule == '30 13 * * 1-5' && 'true' || 'false' }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

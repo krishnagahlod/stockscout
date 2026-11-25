@@ -43,6 +43,12 @@ async def sync_everything():
             except Exception as e:
                 logger.error(f"Error during events sync: {e}")
                 await db.rollback()
+            try:
+                from app.services.financials_service import sync_financials
+                logger.info(f"Step 2c: Results and ownership: {await sync_financials(db)}")
+            except Exception as e:
+                logger.error(f"Error during financials sync: {e}")
+                await db.rollback()
             
         try:
             logger.info("Step 3: Recomputing technical features...")
@@ -51,6 +57,13 @@ async def sync_everything():
         except Exception as e:
             logger.error(f"Error during feature recompute: {e}")
             
+        try:
+            from app.services.nse_service import sync_delivery
+            logger.info(f"Step 3a: Delivery % from NSE: {await sync_delivery(db)} days filled")
+        except Exception as e:
+            logger.error(f"Error during delivery sync: {e}")
+            await db.rollback()
+
         try:
             from app.services.fund_service import sync_funds
             logger.info(f"Step 3b: Mutual funds from AMFI: {await sync_funds(db)}")
@@ -80,6 +93,13 @@ async def sync_everything():
             await db.execute(text("refresh materialized view concurrently public.stock_snapshot"))
             await db.commit()
             logger.info("Step 6: Refreshed stock_snapshot.")
+
+        if os.getenv("SKIP_FUNDAMENTALS", "").lower() != "true":  # the weekly (Saturday) run
+            try:
+                from app.services.email_service import send_weekly
+                logger.info(f"Step 7: Weekly emails sent: {await send_weekly(db)}")
+            except Exception as e:
+                logger.error(f"Error sending weekly emails: {e}")
 
     logger.info("Full synchronization complete! All data is now up-to-date.")
 

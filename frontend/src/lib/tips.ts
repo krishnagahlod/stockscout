@@ -82,7 +82,7 @@ const p0 = (x: number) => `${Math.round(Math.abs(x) * 100)}%`;
 const isLender = (s: StockSnapshot) => s.sector === "Financial Services";
 
 /** Red flags and reassuring facts for one company, from our own numbers only. */
-export function tipFlags(s: StockSnapshot, universe: StockSnapshot[], history: Point[]): { flags: Flag[]; fine: string[] } {
+export function tipFlags(s: StockSnapshot, universe: StockSnapshot[], history: (Point & { delivery_pct?: number | null })[]): { flags: Flag[]; fine: string[] } {
   const flags: Flag[] = [];
   const fine: string[] = [];
   const nums = (pick: (u: StockSnapshot) => number | null) => universe.map(pick).filter((x): x is number => x != null);
@@ -98,6 +98,11 @@ export function tipFlags(s: StockSnapshot, universe: StockSnapshot[], history: P
   if (m1 != null && m1 >= 0.25) flags.push({ level: "red", text: `Price up ${p0(m1)} in the past month. Tips spread after sharp jumps, and late buyers are the ones who get hurt.` });
   else if (m1 != null && m1 >= 0.15) flags.push({ level: "amber", text: `Price up ${p0(m1)} in the past month, a fast rise for a large company.` });
   if (m3 != null && m3 >= 0.6) flags.push({ level: "red", text: `Price up ${p0(m3)} in 3 months.` });
+  const deliv = history.slice(-5).map((p) => p.delivery_pct).filter((v): v is number => v != null);
+  const avgDeliv = deliv.length >= 3 ? deliv.reduce((a, v) => a + Number(v), 0) / deliv.length : null;
+  if (m1 != null && m1 >= 0.15 && avgDeliv != null && avgDeliv < 30) {
+    flags.push({ level: "red", text: `Most of the recent buying was same-day trading: only ${Math.round(avgDeliv)}% of shares traded in the last week were actually kept by buyers.` });
+  }
 
   const om = s.operating_margin;
   if ((s.eps != null && s.eps < 0) || (s.net_margin != null && s.net_margin < 0)) flags.push({ level: "red", text: "Made a loss in the latest year we have." });

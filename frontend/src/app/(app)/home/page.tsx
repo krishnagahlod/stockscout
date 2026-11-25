@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
+import { WeeklyEmailToggle } from "./weekly-email";
 import { getUniverse, dataAsOf } from "@/lib/market";
 import { dayChange } from "@/lib/metrics";
 import { summarize, type HoldingRow } from "@/lib/portfolio";
@@ -14,7 +15,7 @@ export default async function HomePage() {
   const { data: { user } } = await supabase.auth.getUser();
   const [universe, { data: profile }, { data: holdings }, { data: ideas }] = await Promise.all([
     getUniverse(supabase),
-    supabase.from("user_profiles").select("display_name").eq("user_id", user!.id).maybeSingle(),
+    supabase.from("user_profiles").select("display_name, weekly_email").eq("user_id", user!.id).maybeSingle(),
     supabase.from("holdings").select("id, stock_id, quantity, avg_buy_price").eq("user_id", user!.id),
     supabase.from("strategies").select("id, name, description, rules_json").order("created_at", { ascending: false }).limit(10),
   ]);
@@ -113,6 +114,8 @@ export default async function HomePage() {
           )}
         </Panel>
       </div>
+
+      <WeeklyEmailToggle on={!!profile?.weekly_email} />
     </div>
   );
 }

@@ -112,6 +112,9 @@ import { findMentions, hypeWords, tipFlags } from "../tips";
   assert.ok(flags.some((f) => f.text.includes("up 40% in the past month")), "month spike");
   assert.ok(flags.some((f) => f.text.includes("loss")), "loss");
   assert.ok(tipFlags(u[2], u, hist).flags.some((f) => f.text.includes("day-to-day business lost money")), "one-off profit");
+  const lowDeliv = hist.map((p, i) => ({ ...p, delivery_pct: i > 64 ? 18 : 55 }));
+  assert.ok(tipFlags(u[1], u, lowDeliv).flags.some((f) => f.text.includes("same-day trading")), "spike on low delivery");
+  assert.ok(!tipFlags(u[1], u, hist.map((p) => ({ ...p, delivery_pct: 55 }))).flags.some((f) => f.text.includes("same-day")), "normal delivery: no flag");
   console.log("tips check: ok");
 }
 
@@ -192,4 +195,18 @@ import { taxIfSoldToday } from "../tax";
   assert.equal(taxIfSoldToday([lot(100, 200, "2025-11-25")], "2026-11-25").longGain, 0, "exactly 12 months is still short-term");
   assert.equal(taxIfSoldToday([lot(100, 200, null)], "2026-11-25").unknownDates, 1);
   console.log("tax check: ok");
+}
+
+// P/E against its own past
+import { peBand } from "../valuation";
+{
+  // 24 month-ends at price 100, then 12 at price 200; EPS 10 known from 2024-05-30, EPS 20 from 2025-05-30
+  const months = Array.from({ length: 36 }, (_, i) => { const y = 2024 + Math.floor(i / 12); const m = (i % 12) + 1; return { date: `${y}-${String(m).padStart(2, "0")}-28`, close: i < 24 ? 100 : 200 }; });
+  const b = peBand(months, [{ period_end: "2024-03-31", eps: 10 }, { period_end: "2025-03-31", eps: 20 }, { period_end: "2023-03-31", eps: -1 }])!;
+  // usable from June 2024: Jun 2024-Apr 2025 at EPS 10 (P/E 10), from Jun 2025 at EPS 20 (P/E 5 then 10)
+  assert.equal(b.low, 5);
+  assert.equal(b.high, 10);
+  assert.ok(b.months >= 12);
+  assert.equal(peBand(months.slice(0, 8), [{ period_end: "2024-03-31", eps: 10 }]), null, "too little history");
+  console.log("valuation check: ok");
 }

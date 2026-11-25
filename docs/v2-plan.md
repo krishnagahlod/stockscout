@@ -16,6 +16,18 @@ Phase 1, in the agreed order. Ticked items are built (24 Nov 2026).
 - [x] Market today (/market): one-line summary, industry map, big movers, breadth
 - [ ] AI explainer (waiting for the Groq key)
 
+Phase 2, built 25 Nov 2026:
+
+- [x] Mutual funds (/funds): 1,731 Direct-Growth funds from AMFI nightly, weekly history since 2019, plain groups, fund pages
+- [x] Compare (/compare): up to three companies or ETFs, chart and numbers side by side
+- [x] Events: expected results dates, dividends, splits (weekly from Yahoo) on stock pages, Portfolio and Market today
+- [x] Tax helper: "if you sold everything today" on Portfolio (July 2024 rates); holdings now record a "bought on" date
+- [x] Lessons (/learn): twelve 2-minute lessons incl. demat and KYC; numbers link to their lesson
+- [x] Results and owners: 4 years and 6 quarters of results, P/E against its own past, insiders vs institutions
+- [x] Delivery % from NSE's daily file, on stock pages and as a tip-checker flag
+- [x] Weekly email (opt-in on Home), Saturday mornings via Resend; needs the RESEND_API_KEY GitHub secret
+- [ ] Pledged shares and fund flows: need NSE's filings and reports, moved to Phase 3 with the data switch
+
 Data fixes made along the way:
 
 - Filled a hole in price history: 235 stocks were missing 23 Feb to 21 Jul 2026 (22,314 days added).
